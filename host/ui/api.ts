@@ -1,0 +1,259 @@
+// Thin client for the /conversations API.
+//
+//   GET  /conversations                       list threads
+//   GET  /conversations/:id                   one thread with its messages
+//   POST /conversations                       start a thread (streams the reply)
+//   POST /conversations/:id/messages          continue a thread (streams the reply)
+//
+// The two POSTs request a stream (Accept: text/event-stream) but degrade
+// gracefully to a plain JSON response, so they work no matter how you implement
+// the endpoint.
+//
+// Streaming contract — the server wraps every agent payload in a `token` event
+// whose data is an AgentStreamPayload:
+//   event: meta   data: { "conversationId": "..." }  // once, before the tokens
+//   event: token  data: { "phase": "working", "value": { action, observation } }
+//   event: token  data: { "phase": "done",    "value": "the final reply" }
+//   event: error  data: { "message": "..." }
+//   event: done   data: {}                    // end of turn
+//
+// Only the `done` payload holds the reply. The `working` ones are intermediate
+// agent steps, shown as transient status while the turn is in flight.
+//
+// Non-streaming contract (application/json):
+//   { "reply": "...", "conversationId": "..." }   on success
+//   { "error": "..." }                            on failure
+
+const ENDPOINT = "/conversations";
+
+/** A single agent step, as produced by LangChain / mcp-use. */
+export interface AgentStep {
+  action?: {
+    tool?: string;
+    toolInput?: unknown;
+    log?: string;
+  };
+  observation?: string;
+}
+
+export type AgentStreamPayload =
+  | { phase: "working"; value: AgentStep }
+  | { phase: "done"; value: string };
+
+export interface ChatHandlers {
+  /** An intermediate step — render as transient status, not as the reply. */
+  onStep?: (step: AgentStep) => void;
+  /** The effective reply. Fires once, at the end of the turn. */
+  onReply?: (text: string) => void;
+  /** Called on a server-reported error. */
+  onError?: (message: string) => void;
+  /**
+   * The thread this turn belongs to. Fires before the first step when starting
+   * a new conversation — that id is the only way to continue the thread later.
+   */
+  onConversation?: (conversationId: string) => void;
+  /** Abort the request (e.g. a Stop button). */
+  signal?: AbortSignal;
+}
+
+/** A thread in the sidebar list. */
+export interface ConversationSummary {
+  id: string;
+  preview: string;
+  messageCount: number;
+  createdAt: string;
+  lastMessageAt: string;
+}
+
+/** One stored turn, as returned by `GET /conversations/:id`. */
+export interface StoredMessage {
+  id: string;
+  author: "user" | "assistant";
+  content: string;
+  createdAt: string;
+}
+
+export interface ConversationDetail {
+  id: string;
+  createdAt: string;
+  messages: StoredMessage[];
+}
+
+/** Newest thread first. */
+export async function listConversations(
+  signal?: AbortSignal
+): Promise<ConversationSummary[]> {
+  const res = await fetch(ENDPOINT, {
+    headers: { accept: "application/json" },
+    signal,
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  const data = (await res.json()) as { conversations?: ConversationSummary[] };
+  return data.conversations ?? [];
+}
+
+/** One thread with its full message history. */
+export async function getConversation(
+  conversationId: string,
+  signal?: AbortSignal
+): Promise<ConversationDetail> {
+  const res = await fetch(`${ENDPOINT}/${encodeURIComponent(conversationId)}`, {
+    headers: { accept: "application/json" },
+    signal,
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as ConversationDetail;
+}
+
+/**
+ * Send a message and stream the reply. Resolves with the final assistant text.
+ *
+ * Omit `conversationId` to start a new thread — the server creates one and
+ * reports its id through `onConversation`.
+ */
+export async function sendChat(
+  message: string,
+  handlers: ChatHandlers = {},
+  conversationId?: string
+): Promise<string> {
+  const url = conversationId
+    ? `${ENDPOINT}/${encodeURIComponent(conversationId)}/messages`
+    : ENDPOINT;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "text/event-stream",
+    },
+    // Both routes validate a `{ message }` body.
+    body: JSON.stringify({ message }),
+    signal: handlers.signal,
+  });
+
+  if (!res.ok) {
+    const message = await readError(res);
+    handlers.onError?.(message);
+    throw new Error(message);
+  }
+
+  const contentType = res.headers.get("content-type") ?? "";
+
+  // Non-streaming fallback: plain JSON.
+  if (!contentType.includes("text/event-stream") || !res.body) {
+    const data = (await res.json().catch(() => ({}))) as {
+      reply?: string;
+      result?: string;
+      error?: string;
+      conversationId?: string;
+    };
+    if (data.error) {
+      handlers.onError?.(data.error);
+      throw new Error(data.error);
+    }
+    if (data.conversationId) handlers.onConversation?.(data.conversationId);
+    const text = data.reply ?? data.result ?? "";
+    if (text) handlers.onReply?.(text);
+    return text;
+  }
+
+  return readSseStream(res.body, handlers);
+}
+
+async function readSseStream(
+  body: ReadableStream<Uint8Array>,
+  handlers: ChatHandlers
+): Promise<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let reply = "";
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE events are separated by a blank line.
+      let boundary: number;
+      while ((boundary = buffer.indexOf("\n\n")) !== -1) {
+        const rawEvent = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+
+        const { event, data } = parseSseEvent(rawEvent);
+        if (data === "") continue;
+
+        let payload: any = data;
+        try {
+          payload = JSON.parse(data);
+        } catch {
+          /* leave as raw string */
+        }
+
+        switch (event) {
+          case "meta":
+            if (payload?.conversationId) {
+              handlers.onConversation?.(String(payload.conversationId));
+            }
+            break;
+          case "token": {
+            // Every agent payload arrives here; `phase` says which kind.
+            if (payload?.phase === "done") {
+              reply = stringifyReply(payload.value);
+              handlers.onReply?.(reply);
+            } else if (payload?.phase === "working") {
+              handlers.onStep?.(payload.value ?? {});
+            }
+            break;
+          }
+          case "error":
+            handlers.onError?.(
+              typeof payload === "string" ? payload : payload?.message ?? "Error"
+            );
+            break;
+          case "done":
+            return reply;
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return reply;
+}
+
+// The agent's return value is a string, but a structured-output run can resolve
+// to an object — don't render "[object Object]".
+function stringifyReply(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function parseSseEvent(raw: string): { event: string; data: string } {
+  let event = "message";
+  const dataLines: string[] = [];
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("event:")) {
+      event = line.slice(6).trim();
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5).replace(/^ /, ""));
+    }
+  }
+  return { event, data: dataLines.join("\n") };
+}
+
+async function readError(res: Response): Promise<string> {
+  try {
+    const data = (await res.json()) as { error?: string };
+    return data.error ?? `Request failed (${res.status})`;
+  } catch {
+    return `Request failed (${res.status})`;
+  }
+}

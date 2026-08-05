@@ -1,0 +1,40 @@
+# Local SearXNG instance for the agent's web search tool.
+#
+# SearXNG is a self-hosted metasearch engine (AGPL-3.0): it forwards a query to
+# upstream engines and aggregates the results. Nothing here calls a paid API and
+# no query leaves this machine except the upstream engine requests themselves.
+#
+# Inherits SearXNG's defaults; only the deltas below are set.
+use_default_settings: true
+
+server:
+  # Rate limiter is aimed at public instances. This one is bound to localhost
+  # and only the agent talks to it, so the limiter just gets in the way.
+  limiter: false
+  image_proxy: false
+
+search:
+  # `json` is NOT in SearXNG's default format list, and mcp-searxng needs it —
+  # without this the server gets HTML back and every search returns nothing.
+  formats:
+    - html
+    - json
+  # Keep upstream engines from timing out the agent's turn.
+  default_lang: "en"
+
+# A deliberately small engine set. Each engine adds latency to every query
+# (results are gathered in parallel but the slowest one gates the response) and
+# more near-duplicate hits for the agent to read through.
+engines:
+  - name: google
+    disabled: false
+  - name: duckduckgo
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: wikipedia
+    disabled: false
+
+ui:
+  infinite_scroll: false
+  query_in_title: true
