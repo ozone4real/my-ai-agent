@@ -3,7 +3,12 @@ import type { Request, Response } from "express"
 import { Types } from "mongoose"
 import { TaskModel } from "../models/task"
 import { TaskRunModel } from "../models/task_run"
-import { serializeTask, serializeTaskRun } from "../serializers/task"
+import {
+  applyTaskUpdate,
+  serializeTask,
+  serializeTaskRun,
+  taskUpdateShape,
+} from "../serializers/task"
 
 const router = Router()
 
@@ -38,6 +43,34 @@ router.get("/:task_id", async (req: Request, res: Response) => {
 
   const runs = await TaskRunModel.find({ task: task._id }).sort({ startedAt: -1 })
   res.json({ ...serializeTask(task), runs: runs.map(serializeTaskRun) })
+})
+
+// PATCH rather than PUT: every field is optional, and an absent one means
+// "leave it alone" rather than "clear it".
+router.patch("/:task_id", async (req: Request, res: Response) => {
+  const task = await findTask(req.params.task_id, res)
+  if (!task) return
+
+  // safeParse rather than parse: Express 5 forwards a thrown ZodError to its
+  // default handler, which answers 500. A bad body is a 400.
+  const parsed = taskUpdateShape.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({
+      error: parsed.error.issues.map((i) => i.message).join("; "),
+    })
+    return
+  }
+
+  applyTaskUpdate(task, parsed.data)
+  try {
+    await task.save()
+  } catch (err) {
+    // Schema-level validation (a required field emptied, say) lands here.
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+    return
+  }
+
+  res.json(serializeTask(task))
 })
 
 router.delete("/:task_id", async (req: Request, res: Response) => {

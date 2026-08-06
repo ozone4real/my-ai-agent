@@ -48,3 +48,6 @@ host/dist
 
 # REPL history (npm run console)
 .console_history
+
+# dbs
+dump.rdb

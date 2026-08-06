@@ -9,9 +9,11 @@ import { connectDB } from "../host/server/db.js";
 import { TaskModel } from "../host/server/models/task.js";
 import { TaskRunModel } from "../host/server/models/task_run.js";
 import {
+  applyTaskUpdate,
   serializeTask,
   serializeTaskRun,
   taskShape,
+  taskUpdateShape,
   taskWithRunsShape,
 } from "../host/server/serializers/task.js";
 
@@ -180,6 +182,153 @@ export const listTasks = server.tool(
     ]);
 
     const payload = { tasks: tasks.map(serializeTask), total };
+    return {
+      content: [{ type: "text", text: JSON.stringify(payload) }],
+      structuredContent: payload,
+    };
+  }
+);
+
+/**
+ * Load a task for a write, refusing anything the assistant didn't create.
+ *
+ * The REST API has no such restriction — a person editing their own task
+ * through the UI is fine. This is specifically about the agent not quietly
+ * rewriting or deleting instructions a human set up.
+ *
+ * Returns the task, or the `isError` result to hand straight back.
+ */
+const loadOwnTask = async (id: string) => {
+  if (!Types.ObjectId.isValid(id)) {
+    return { error: { isError: true as const, content: [{ type: "text" as const, text: `Not a valid task id: ${id}` }] } };
+  }
+
+  const task = await TaskModel.findById(id);
+  if (!task) {
+    return { error: { isError: true as const, content: [{ type: "text" as const, text: `No task with id ${id}` }] } };
+  }
+
+  if (task.creator !== "assistant") {
+    return {
+      error: {
+        isError: true as const,
+        content: [
+          {
+            type: "text" as const,
+            text:
+              `Task ${id} was created by the user, so it can't be changed from here. ` +
+              `Only tasks the assistant created itself may be updated or deleted. ` +
+              `Tell the user they can edit or remove it themselves.`,
+          },
+        ],
+      },
+    };
+  }
+
+  return { task };
+};
+
+export const updateTask = server.tool(
+  {
+    name: "update-task",
+    title: "Update Task",
+    description:
+      "Change the prompt, schedule or run limit of a scheduled task. Only tasks the assistant created can be changed; user-created ones are refused. Returns the updated task.",
+    schema: z.object({
+      id: z.string().describe("The task's id, as returned by list-tasks."),
+      prompt: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("New instruction to run the agent with. Omit to leave unchanged."),
+      schedule: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("New cron expression, e.g. '0 9 * * 1'. Omit to leave unchanged."),
+      limit: z
+        .number()
+        .int()
+        .positive()
+        .nullable()
+        .optional()
+        .describe("New maximum number of runs. null clears the cap; omit to leave unchanged."),
+    }),
+    annotations: {
+      readOnlyHint: false,
+      // Overwrites fields a user may be relying on, so hosts should treat it as
+      // worth confirming.
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    outputSchema: taskShape,
+  },
+  async ({ id, ...fields }) => {
+    await connectDB();
+
+    const parsed = taskUpdateShape.safeParse(fields);
+    if (!parsed.success) {
+      return {
+        isError: true,
+        content: [
+          { type: "text", text: parsed.error.issues.map((i) => i.message).join("; ") },
+        ],
+      };
+    }
+
+    const { task, error } = await loadOwnTask(id);
+    if (error) return error;
+
+    applyTaskUpdate(task, parsed.data);
+    try {
+      await task.save();
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      return { isError: true, content: [{ type: "text", text: `Could not update task: ${reason}` }] };
+    }
+
+    const updated = serializeTask(task);
+    return {
+      content: [{ type: "text", text: JSON.stringify(updated) }],
+      structuredContent: updated,
+    };
+  }
+);
+
+export const deleteTask = server.tool(
+  {
+    name: "delete-task",
+    title: "Delete Task",
+    description:
+      "Delete a scheduled task and its run history. Only tasks the assistant created can be deleted; user-created ones are refused.",
+    schema: z.object({
+      id: z.string().describe("The task's id, as returned by list-tasks."),
+    }),
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      // Deleting an already-deleted task fails rather than succeeding quietly,
+      // so this is not safe to blindly retry.
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+    outputSchema: z.object({
+      id: z.string().describe("Id of the deleted task"),
+      deletedRuns: z.number().describe("How many runs were removed with it"),
+    }),
+  },
+  async ({ id }) => {
+    await connectDB();
+
+    const { task, error } = await loadOwnTask(id);
+    if (error) return error;
+
+    // Runs are unreachable once the task is gone, so they go with it.
+    const { deletedCount } = await TaskRunModel.deleteMany({ task: task._id });
+    await task.deleteOne();
+
+    const payload = { id, deletedRuns: deletedCount ?? 0 };
     return {
       content: [{ type: "text", text: JSON.stringify(payload) }],
       structuredContent: payload,

@@ -6,9 +6,9 @@ import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatDeepSeek } from "@langchain/deepseek";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { MCPClient } from "@mcp-use/client";
-import ServersDefinition from "../../../mcp_servers/servers_definition";
-import { convert, serialize, toLangChainHistory } from "./message_converters/deep_seek";
-import type { DeepSeekMessage, LangChainMessage } from "./message_converters/deep_seek";
+import ServersDefinition from "../../../mcp_servers/servers_definition.js";
+import { convert, serialize, toLangChainHistory } from "./message_converters/deep_seek.js";
+import type { DeepSeekMessage, LangChainMessage } from "./message_converters/deep_seek.js";
 
 
 enum ModelType {
@@ -379,8 +379,16 @@ export class Agent {
    * The same thread as plain DeepSeek/OpenAI JSON, for persisting. Unlike
    * {@link Agent.conversationHistory} these are inert objects, not LangChain
    * class instances, so they survive a round trip through a database.
+   *
+   * The system message is left out. It is generated fresh on every run from the
+   * live tool list and {@link AgentOptions.conversationId}, so a stored copy is
+   * both stale and enormous — it is the bulk of a transcript, and repeats every
+   * tool description verbatim. Nothing wants it back either: `externalHistory`
+   * discards system messages, so replaying one is a no-op.
    */
   get serializedConversationHistory(): AgentMessage[] {
-    return convert(serialize(this.conversationHistory))
+    return convert(serialize(this.conversationHistory)).filter(
+      (message) => message.role !== "system"
+    )
   }
 }

@@ -15,6 +15,7 @@ import express, {
 } from "express";
 import { Agent } from "./agents";
 import { connectDB } from "./db";
+import { reconcileTaskSchedulers } from "./jobs/reconcile_schedulers.js";
 import router from "./routes"
 import SseStream from "./services/sse_stream";
 
@@ -49,7 +50,26 @@ app.use("/api", router)
 app.use(router)
 
 connectDB()
-  .then(() => console.log("MongoDB connected"))
+  .then(async () => {
+    console.log("MongoDB connected");
+    // Repair any scheduler drift from a previous Redis outage or a bulk delete.
+    // Best-effort: if Redis is down the app still serves, and the next start
+    // (or a manual call) will reconcile.
+    try {
+      const { added, updated, removed } = await reconcileTaskSchedulers();
+      if (added || updated || removed) {
+        console.log(
+          `Schedulers reconciled: ${added} added, ${updated} updated, ${removed} removed`
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `Could not reconcile task schedulers (is Redis up?): ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
+  })
 
 /**
  * Bring up this project's own MCP server alongside the host.
