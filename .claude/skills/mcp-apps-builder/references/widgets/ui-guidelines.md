@@ -1,37 +1,43 @@
 # Widget UI Guidelines
 
+> **v2 note:** auto-sizing is no longer a provider prop. It is on by default; opt out
+> with `export const viewConfig = { autoResize: false } satisfies ViewConfig` and
+> report size yourself with `useSendSizeChanged()`.
+
+
 Build widgets that adapt to themes, look professional, and provide great user experience.
 
 **Key topics:** Theme support, light/dark mode, responsive layouts, accessibility, CSS best practices
 
 ---
 
-## Theme Support with useWidgetTheme()
+## Theme Support with useViewTheme()
 
 Widgets should adapt to the user's theme (light/dark mode):
 
 ```tsx
-import { McpUseProvider, useWidget, useWidgetTheme, type WidgetMetadata } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useViewTheme, type ViewConfig } from "mcp-use/react";
 import { z } from "zod";
 
-export const widgetMetadata: WidgetMetadata = {
+export const viewConfig: ViewConfig = {
   description: "Theme-aware widget",
   props: z.object({
     message: z.string()
   }),
-  exposeAsTool: false
 };
 
 export default function ThemedWidget() {
-  const { props, isPending } = useWidget();
-  const theme = useWidgetTheme();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
+  const theme = useViewTheme();
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{
         padding: 20,
         backgroundColor: theme === "dark" ? "#1e1e1e" : "#ffffff",
@@ -39,12 +45,12 @@ export default function ThemedWidget() {
       }}>
         <p>{props.message}</p>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
 
-**useWidgetTheme() returns:** `"light"` or `"dark"`
+**useViewTheme() returns:** `"light"` or `"dark"`
 
 ---
 
@@ -53,7 +59,7 @@ export default function ThemedWidget() {
 Define color palettes for both themes:
 
 ```tsx
-const theme = useWidgetTheme();
+const theme = useViewTheme();
 
 const colors = {
   background: theme === "dark" ? "#1e1e1e" : "#ffffff",
@@ -67,7 +73,7 @@ const colors = {
 };
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <div style={{
       backgroundColor: colors.background,
       color: colors.text,
@@ -75,7 +81,7 @@ return (
     }}>
       {/* Your content */}
     </div>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 
@@ -83,7 +89,7 @@ Or extract to a hook:
 
 ```tsx
 function useColors() {
-  const theme = useWidgetTheme();
+  const theme = useViewTheme();
 
   return {
     background: theme === "dark" ? "#1e1e1e" : "#ffffff",
@@ -174,7 +180,7 @@ export default function ThemedWidget() {
 Theme-aware buttons:
 
 ```tsx
-const theme = useWidgetTheme();
+const theme = useViewTheme();
 
 const buttonStyle: React.CSSProperties = {
   padding: "8px 16px",
@@ -195,12 +201,12 @@ const secondaryButtonStyle: React.CSSProperties = {
 };
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <div>
       <button style={buttonStyle}>Primary Action</button>
       <button style={secondaryButtonStyle}>Secondary</button>
     </div>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 
@@ -231,7 +237,7 @@ const [hovered, setHovered] = useState(false);
 ## Card Components
 
 ```tsx
-const theme = useWidgetTheme();
+const theme = useViewTheme();
 
 const cardStyle: React.CSSProperties = {
   padding: 16,
@@ -242,7 +248,7 @@ const cardStyle: React.CSSProperties = {
 };
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <div style={{ padding: 20 }}>
       {props.items.map(item => (
         <div key={item.id} style={{
@@ -256,7 +262,7 @@ return (
         </div>
       ))}
     </div>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 
@@ -265,7 +271,7 @@ return (
 ## Typography
 
 ```tsx
-const theme = useWidgetTheme();
+const theme = useViewTheme();
 
 <div style={{ padding: 20 }}>
   {/* Heading */}
@@ -313,7 +319,7 @@ const theme = useWidgetTheme();
 ## Form Inputs
 
 ```tsx
-const theme = useWidgetTheme();
+const theme = useViewTheme();
 
 const inputStyle: React.CSSProperties = {
   padding: 8,
@@ -361,7 +367,7 @@ const inputStyle: React.CSSProperties = {
 ## Lists
 
 ```tsx
-const theme = useWidgetTheme();
+const theme = useViewTheme();
 
 <ul style={{
   listStyle: "none",
@@ -395,7 +401,7 @@ const theme = useWidgetTheme();
 ## Badges and Tags
 
 ```tsx
-const theme = useWidgetTheme();
+const theme = useViewTheme();
 
 const badgeStyle: React.CSSProperties = {
   display: "inline-block",
@@ -418,11 +424,11 @@ const badgeStyle: React.CSSProperties = {
 ## Loading States
 
 ```tsx
-const theme = useWidgetTheme();
+const theme = useViewTheme();
 
 if (isPending) {
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{
         padding: 40,
         textAlign: "center",
@@ -439,7 +445,7 @@ if (isPending) {
         }} />
         <p>Loading...</p>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -462,7 +468,7 @@ Add spin animation:
 ## Empty States
 
 ```tsx
-const theme = useWidgetTheme();
+const theme = useViewTheme();
 
 {props.items.length === 0 && (
   <div style={{
@@ -501,7 +507,7 @@ const theme = useWidgetTheme();
 ## Error States
 
 ```tsx
-const theme = useWidgetTheme();
+const theme = useViewTheme();
 
 {error && (
   <div style={{
@@ -596,28 +602,28 @@ const spacing = {
 
 ## Auto-Size Best Practices
 
-`<McpUseProvider autoSize>` automatically resizes iframe to content.
+Views auto-resize by default (`viewConfig.autoResize`, default `true`).
 
 **Tips:**
-- Use `autoSize` for dynamic content
+- Leave `autoResize` on for dynamic content
 - Avoid fixed heights unless necessary
 - Widget resizes when content changes
 - Test with varying content sizes
 
 ```tsx
-// ✅ Good - autoSize handles height
-<McpUseProvider autoSize>
+// ✅ Good - auto-resize handles height
+<ThemeProvider>
   <div style={{ padding: 20 }}>
     {/* Dynamic content */}
   </div>
-</McpUseProvider>
+</ThemeProvider>
 
-// ❌ Bad - Fixed height defeats autoSize
-<McpUseProvider autoSize>
+// ❌ Bad - Fixed height defeats auto-resize
+<ThemeProvider>
   <div style={{ height: 400, overflow: "auto" }}>
     {/* Content */}
   </div>
-</McpUseProvider>
+</ThemeProvider>
 ```
 
 ---
@@ -626,11 +632,11 @@ const spacing = {
 
 ```tsx
 import { useState } from "react";
-import { McpUseProvider, useWidget, useWidgetTheme, type WidgetMetadata } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useViewTheme, type ViewConfig } from "mcp-use/react";
 import { z } from "zod";
 
 function useColors() {
-  const theme = useWidgetTheme();
+  const theme = useViewTheme();
 
   return {
     background: theme === "dark" ? "#1e1e1e" : "#ffffff",
@@ -642,7 +648,7 @@ function useColors() {
   };
 }
 
-export const widgetMetadata: WidgetMetadata = {
+export const viewConfig: ViewConfig = {
   description: "Fully themed product list",
   props: z.object({
     products: z.array(z.object({
@@ -652,17 +658,18 @@ export const widgetMetadata: WidgetMetadata = {
       category: z.string()
     }))
   }),
-  exposeAsTool: false
 };
 
 export default function ThemedProductList() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
   const colors = useColors();
   const [selectedCategory, setSelectedCategory] = useState("all");
 
   if (isPending) {
     return (
-      <McpUseProvider autoSize>
+      <ThemeProvider>
         <div style={{
           padding: 40,
           textAlign: "center",
@@ -670,7 +677,7 @@ export default function ThemedProductList() {
         }}>
           Loading...
         </div>
-      </McpUseProvider>
+      </ThemeProvider>
     );
   }
 
@@ -680,7 +687,7 @@ export default function ThemedProductList() {
     : props.products.filter(p => p.category === selectedCategory);
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{
         padding: 20,
         backgroundColor: colors.background,
@@ -747,7 +754,7 @@ export default function ThemedProductList() {
           </div>
         )}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```

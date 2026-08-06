@@ -45,3 +45,6 @@ Thumbs.db
 
 # web interface build output
 host/dist
+
+# REPL history (npm run console)
+.console_history

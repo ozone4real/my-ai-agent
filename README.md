@@ -17,7 +17,7 @@ You can start building by editing the entry file. Add tools, resources, and prom
 
 ## Web search (local, no API keys)
 
-The agent in `host/server/agent.ts` gets web search from a **self-hosted
+The agent in `host/server/agents/index.ts` gets web search from a **self-hosted
 [SearXNG](https://github.com/searxng/searxng)** (AGPL-3.0) instance via
 [`mcp-searxng`](https://github.com/ihor-sokoliuk/mcp-searxng) (MIT). Nothing is
 sent to a paid search API and there is no key to manage — SearXNG runs in Docker
@@ -40,7 +40,7 @@ The agent's `websearch` entry sets operator-level caps (`SEARXNG_MAX_RESULTS`,
 `mcp-searxng` clamps the model's requests down to. Measured against the
 uncapped defaults, they cut tool schemas from ~6.4k to ~1.2k chars (paid on
 every model call) and a single search result from ~9.7k to ~1.9k chars
-(~2,400 → ~480 tokens). Raise them in `agent.ts` if answers start coming back
+(~2,400 → ~480 tokens). Raise them in `agents/index.ts` if answers start coming back
 truncated.
 
 If the container isn't running, the agent still starts — searches just fail,

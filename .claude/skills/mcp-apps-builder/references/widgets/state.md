@@ -34,10 +34,10 @@ Standard React state management works in widgets:
 
 ```tsx
 import { useState } from "react";
-import { McpUseProvider, useWidget, type WidgetMetadata } from "mcp-use/react";
+import { ThemeProvider, useToolContext, type ViewConfig } from "mcp-use/react";
 import { z } from "zod";
 
-export const widgetMetadata: WidgetMetadata = {
+export const viewConfig: ViewConfig = {
   description: "Product list with filtering",
   props: z.object({
     products: z.array(z.object({
@@ -47,16 +47,17 @@ export const widgetMetadata: WidgetMetadata = {
       price: z.number()
     }))
   }),
-  exposeAsTool: false
 };
 
 export default function ProductList() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"name" | "price">("name");
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   // Filter and sort based on state
@@ -72,7 +73,7 @@ export default function ProductList() {
   const categories = ["all", ...new Set(props.products.map(p => p.category))];
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ padding: 20 }}>
         {/* Category filter */}
         <div style={{ marginBottom: 16 }}>
@@ -116,7 +117,7 @@ export default function ProductList() {
           ))}
         </div>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -129,13 +130,13 @@ export default function ProductList() {
 
 ---
 
-## Using setState from useWidget
+## Using setState from useToolContext
 
-The `setState` method from `useWidget()` is an alternative to React's `useState` with automatic state persistence across widget interactions. See [basics.md](basics.md#usewidget-hook) for full `useWidget()` API reference.
+The `setState` method from `useToolContext()` is an alternative to React's `useState` with automatic state persistence across widget interactions. See [basics.md](basics.md#usewidget-hook) for full `useToolContext()` API reference.
 
 **When to use `setState` vs `useState`:**
 - Use `useState` for simple, ephemeral UI state (resets on widget unmount)
-- Use `setState` from `useWidget` for state that persists across interactions
+- Use `setState` from `useToolContext` for state that persists across interactions
 
 ---
 
@@ -147,13 +148,15 @@ Track which item(s) are selected:
 import { useState } from "react";
 
 export default function ItemSelector() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  if (isPending) return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+  if (isPending) return <ThemeProvider><div>Loading...</div></ThemeProvider>;
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         {props.items.map(item => (
           <div
@@ -170,7 +173,7 @@ export default function ItemSelector() {
           </div>
         ))}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -191,7 +194,7 @@ const toggleSelection = (id: string) => {
 };
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <div>
       {props.items.map(item => (
         <div
@@ -212,7 +215,7 @@ return (
         </div>
       ))}
     </div>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 
@@ -226,7 +229,7 @@ Manage tabs without additional tool calls:
 const [activeTab, setActiveTab] = useState<"overview" | "details" | "history">("overview");
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <div>
       {/* Tab buttons */}
       <div style={{ borderBottom: "1px solid #ddd", marginBottom: 16 }}>
@@ -252,7 +255,7 @@ return (
       {activeTab === "details" && <div>{/* Details content */}</div>}
       {activeTab === "history" && <div>{/* History content */}</div>}
     </div>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 
@@ -271,7 +274,7 @@ const startIndex = (currentPage - 1) * itemsPerPage;
 const currentItems = props.items.slice(startIndex, startIndex + itemsPerPage);
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <div>
       {/* Items */}
       <div>
@@ -301,7 +304,7 @@ return (
         </button>
       </div>
     </div>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 
@@ -340,7 +343,7 @@ const filteredItems = props.items.filter(item => {
 });
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <div>
       {/* Filter controls */}
       <div style={{ marginBottom: 16 }}>
@@ -385,7 +388,7 @@ return (
         ))}
       </div>
     </div>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 
@@ -409,7 +412,7 @@ const toggleExpand = (id: string) => {
 };
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <div>
       {props.items.map(item => (
         <div key={item.id} style={{ marginBottom: 8 }}>
@@ -435,7 +438,7 @@ return (
         </div>
       ))}
     </div>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 
@@ -457,7 +460,7 @@ const handleChange = (field: string, value: string) => {
 };
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <form onSubmit={(e) => {
       e.preventDefault();
       // Handle submission (see interactivity.md)
@@ -484,7 +487,7 @@ return (
 
       <button type="submit">Send</button>
     </form>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 

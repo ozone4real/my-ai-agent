@@ -23,7 +23,6 @@
   "include": [
     "ui",
     "server",
-    "server/agent.ts",
     "vite.config.ts"
   ]
 }

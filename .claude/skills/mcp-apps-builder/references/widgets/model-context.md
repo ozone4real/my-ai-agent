@@ -13,7 +13,7 @@ Both APIs feed into a shared global registry that serializes to an indented tree
 | Annotate what the user is *seeing* right now | `<ModelContext>` or `modelContext.set()` |
 | Annotate in JSX, tied to component lifecycle | `<ModelContext content="...">` |
 | Annotate from an event handler or outside React | `modelContext.set(key, value)` |
-| Persist structured state the model reads on future turns | `setState` from `useWidget` |
+| Persist structured state the model reads on future turns | `setState` from `useToolContext` |
 
 Do **not** use `<ModelContext>` as a replacement for `setState`. They serve different purposes:
 - `setState` = developer-managed state (cart, selections, filters). Explicit, you control the shape.
@@ -26,16 +26,18 @@ Do **not** use `<ModelContext>` as a replacement for `setState`. They serve diff
 Declarative, lifecycle-tied, nesting-aware. Removes itself from the tree on unmount — no cleanup needed.
 
 ```tsx
-import { ModelContext, useWidget, McpUseProvider } from "mcp-use/react";
+import { ModelContext, useToolContext, ThemeProvider } from "mcp-use/react";
 
 export default function DashboardWidget() {
-  const { props, isPending } = useWidget<{ activeTab: string }>();
+  const view = useToolContext<"{ activeTab: string }">();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
   const [hovered, setHovered] = useState<string | null>(null);
 
-  if (isPending) return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+  if (isPending) return <ThemeProvider><div>Loading...</div></ThemeProvider>;
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       {/* Root annotation — present for the full widget lifetime */}
       <ModelContext content="User is viewing the analytics dashboard">
 
@@ -55,7 +57,7 @@ export default function DashboardWidget() {
 
         <div>{/* widget UI */}</div>
       </ModelContext>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -117,9 +119,9 @@ The serialized string is sent under a reserved `__model_context` key:
 - **MCP Apps**: `ui/update-model-context` with `structuredContent.__model_context`
 - **ChatGPT Apps SDK**: `setWidgetState` with `__model_context` merged into the state object
 
-`__model_context` is **filtered from the developer-facing `state`** returned by `useWidget` — it never appears in your code.
+`__model_context` is **filtered from the developer-facing `state`** returned by `useToolContext` — it never appears in your code.
 
-Calling `setState` from `useWidget` preserves the current `__model_context` value, so user state updates never wipe annotations.
+Calling `setState` from `useToolContext` preserves the current `__model_context` value, so user state updates never wipe annotations.
 
 ---
 

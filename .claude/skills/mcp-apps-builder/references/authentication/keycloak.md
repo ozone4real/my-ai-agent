@@ -9,7 +9,7 @@ Setting up OAuth with Keycloak. Keycloak exposes full OAuth 2.1 + OIDC endpoints
 ## Quick Start
 
 ```typescript
-import { MCPServer, oauthKeycloakProvider, object } from "mcp-use/server";
+import { MCPServer, oauthKeycloakProvider, object } from "mcp-use";
 
 const server = new MCPServer({
   name: "my-server",
@@ -30,7 +30,7 @@ server.tool(
     })
 );
 
-server.listen();
+export default server;
 ```
 
 With a `.env` file:

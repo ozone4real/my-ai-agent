@@ -1,5 +1,29 @@
 # Response Helpers
 
+> ## ⚠️ v2: these helpers are deprecated
+>
+> Everything on this page still **exists and runs** in mcp-use v2 — but every helper
+> carries an `@deprecated` tag, and none of them typecheck on a tool that declares an
+> `outputSchema`:
+>
+> - `object()` returns `structuredContent` as **optional**; a schema-backed tool's
+>   callback requires it. Optional is not assignable to required, so TS rejects it.
+> - `error()` types `isError` as `boolean | undefined`, not the literal `true` the
+>   return type needs.
+>
+> Since most real tools declare an `outputSchema`, prefer a raw `CallToolResult`:
+>
+> ```typescript
+> return { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: data };
+> return { isError: true, content: [{ type: "text", text: "Not found" }] };   // failure
+> ```
+>
+> Read the rest of this page for the content-block shapes each helper produces — that
+> part is still accurate, and it tells you what to build by hand.
+> Note `widget()` in particular is legacy: v2 binds a view through the tool's
+> `view: { name }` config and takes its props from `structuredContent`.
+
+
 Response helpers format output from tools, resources, and prompts. Always use helpers instead of returning raw values.
 
 **Available helpers:** `text()`, `object()`, `markdown()`, `image()`, `error()`, `widget()`, `mix()`, `resource()`
@@ -39,7 +63,7 @@ server.tool(
 Simple string responses. Most common helper.
 
 ```typescript
-import { text } from "mcp-use/server";
+import { text } from "mcp-use";
 
 server.tool(
   { name: "greet", schema: z.object({ name: z.string() }) },
@@ -82,7 +106,7 @@ server.tool(
 Structured JSON data. Use when AI or client needs structured information.
 
 ```typescript
-import { object } from "mcp-use/server";
+import { object } from "mcp-use";
 
 server.tool(
   { name: "get-user", schema: z.object({ id: z.string() }) },
@@ -134,7 +158,7 @@ server.tool(
 Formatted text with markdown syntax. Great for documentation, reports, explanations.
 
 ```typescript
-import { markdown } from "mcp-use/server";
+import { markdown } from "mcp-use";
 
 server.tool(
   { name: "generate-report", schema: z.object({ data: z.array(z.any()) }) },
@@ -199,7 +223,7 @@ Returns a Promise that resolves to...
 Embed images in responses. Supports URLs or base64 data.
 
 ```typescript
-import { image } from "mcp-use/server";
+import { image } from "mcp-use";
 
 // Image from URL
 server.tool(
@@ -243,7 +267,7 @@ server.tool(
 Error responses. Always use this instead of throwing exceptions.
 
 ```typescript
-import { error } from "mcp-use/server";
+import { error } from "mcp-use";
 
 server.tool(
   { name: "fetch-data", schema: z.object({ id: z.string() }) },
@@ -294,10 +318,10 @@ server.tool(
 
 ## widget()
 
-Return visual UI alongside data. Tool must have `widget: { name }` config.
+Return visual UI alongside data. Tool must have `view: { name }` config.
 
 ```typescript
-import { widget, text } from "mcp-use/server";
+import { widget, text } from "mcp-use";
 
 server.tool(
   {
@@ -306,10 +330,8 @@ server.tool(
     schema: z.object({
       query: z.string().describe("Search query")
     }),
-    widget: {
-      name: "product-list",  // Must match resources/product-list.tsx
-      invoking: "Searching...",
-      invoked: "Products loaded"
+    view: {
+      name: "product-list",  // Must match views/product-list/view.tsx
     }
   },
   async ({ query }) => {
@@ -346,7 +368,7 @@ See [../widgets/basics.md](../widgets/basics.md) for widget implementation.
 Combine multiple content types in a single response.
 
 ```typescript
-import { mix, text, image, markdown } from "mcp-use/server";
+import { mix, text, image, markdown } from "mcp-use";
 
 server.tool(
   { name: "generate-report", schema: z.object({ id: z.string() }) },
@@ -393,7 +415,7 @@ server.tool(
 Reference resources in tool responses:
 
 ```typescript
-import { text, resource } from "mcp-use/server";
+import { text, resource } from "mcp-use";
 
 server.tool(
   { name: "get-help", schema: z.object({ topic: z.string() }) },
@@ -462,7 +484,7 @@ import {
   error,
   widget,
   mix
-} from "mcp-use/server";
+} from "mcp-use";
 import { z } from "zod";
 
 const server = new MCPServer({
@@ -542,7 +564,7 @@ server.tool(
   {
     name: "browse-items",
     schema: z.object({ category: z.string() }),
-    widget: { name: "item-browser" }
+    view: { name: "item-browser" }
   },
   async ({ category }) => {
     const items = await getItems(category);
@@ -554,7 +576,7 @@ server.tool(
   }
 );
 
-server.listen();
+export default server;
 ```
 
 ---

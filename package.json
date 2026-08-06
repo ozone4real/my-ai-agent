@@ -23,9 +23,11 @@
   "scripts": {
     "build": "mcp-use build",
     "dev": "mcp-use dev",
+    "app-mcp": "tsx --env-file-if-exists=.env mcp_servers/serve.ts",
     "typecheck:mcp": "tsc -p tsconfig.node.json",
     "web": "vite host",
-    "web:stub": "dotenv -- tsx host/server/index.ts",
+    "web:server": "dotenv -- tsx host/server/index.ts",
+    "console": "tsx host/server/console.ts",
     "web:build": "vite build host",
     "web:preview": "vite preview host",
     "search:up": "docker compose -f searxng/docker-compose.yml up -d",
@@ -35,6 +37,9 @@
     "deploy": "mcp-use deploy",
     "postinstall": "mcp-use typecheck || exit 0"
   },
+  "engines": {
+    "node": ">=23.11.1"
+  },
   "dependencies": {
     "@langchain/anthropic": "^1.5.1",
     "@langchain/core": "^1.2.4",
@@ -43,6 +48,9 @@
     "@mcp-use/client": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@openai/apps-sdk-ui": "^0.2.1",
+    "bullmq": "^6.0.8",
+    "inflection": "^3.0.2",
+    "ioredis": "^6.0.0",
     "langchain": "^1.5.3",
     "mcp-use": "^2.0.4",
     "mongoose": "^9.9.1",

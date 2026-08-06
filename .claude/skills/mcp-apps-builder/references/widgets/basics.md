@@ -1,5 +1,13 @@
 # Widget Basics
 
+> **v2 note:** v1's "widget" is a **view**. Files live at `views/<name>/view.tsx`,
+> the module exports `viewConfig` (only `autoResize` and `displayModes`) plus a
+> default component, and all of a view's data comes from its bound tool's
+> `outputSchema` via `useToolContext<"tool-name">()`. There is no `props:` schema on
+> the view module and no `exposeAsTool` — a view is reached through the tool that
+> declares `view: { name }`.
+
+
 Widgets are React components that provide visual UI for MCP tools. They let users browse, compare, and interact with data visually.
 
 **Use widgets for:** Product lists, calendars, dashboards, search results, file browsers, any visual data representation
@@ -29,7 +37,7 @@ Widgets are React components that provide visual UI for MCP tools. They let user
 
 ```typescript
 // index.ts
-import { MCPServer, widget, text } from "mcp-use/server";
+import { MCPServer, widget, text } from "mcp-use";
 import { z } from "zod";
 
 const server = new MCPServer({
@@ -44,10 +52,10 @@ server.tool(
     schema: z.object({
       city: z.string().describe("City name")
     }),
-    widget: {
-      name: "weather-display",        // Must match filename: resources/weather-display.tsx
-      invoking: "Fetching weather...", // Optional: shown while loading
-      invoked: "Weather loaded"        // Optional: shown when complete
+    view: {
+      name: "weather-display",  // Must match dir: views/weather-display/view.tsx
+      // v2 has no invoking/invoked. Render your own pending state from
+      // useToolContext().status inside the view.
     }
   },
   async ({ city }) => {
@@ -69,8 +77,8 @@ server.tool(
 ### 2. Create Widget Component
 
 ```tsx
-// resources/weather-display.tsx
-import { McpUseProvider, useWidget, type WidgetMetadata } from "mcp-use/react";
+// views/weather-display/view.tsx
+import { ThemeProvider, useToolContext, type ViewConfig } from "mcp-use/react";
 import { z } from "zod";
 
 const propsSchema = z.object({
@@ -80,96 +88,97 @@ const propsSchema = z.object({
   icon: z.string()
 });
 
-export const widgetMetadata: WidgetMetadata = {
-  description: "Display weather information for a city",
-  props: propsSchema,
-  exposeAsTool: false  // ← Critical: prevents duplicate tool registration
-};
-
-type Props = z.infer<typeof propsSchema>;
+// Only pre-render runtime settings live here. The view's DATA contract is the
+// bound tool's `outputSchema`, and its resource facts (description, csp,
+// prefersBorder) live on that tool's `view:` config.
+export const viewConfig = {
+  displayModes: ["inline", "fullscreen"],
+} satisfies ViewConfig;
 
 export default function WeatherDisplay() {
-  const { props, isPending } = useWidget<Props>();
+  // The generic is the TOOL NAME, not a props type.
+  const view = useToolContext<"get-weather">();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
 
   if (isPending) {
     return (
-      <McpUseProvider autoSize>
+      <ThemeProvider>
         <div>Loading weather...</div>
-      </McpUseProvider>
+      </ThemeProvider>
     );
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ padding: 20 }}>
         <h2>{props.city}</h2>
         <img src={props.icon} alt={props.conditions} width={64} />
         <div style={{ fontSize: 48 }}>{props.temp}°C</div>
         <p>{props.conditions}</p>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
 
 **Key requirements:**
-1. Export `widgetMetadata` with props schema
-2. Infer type from schema and pass to `useWidget<Props>()`
-3. `exposeAsTool` defaults to `false` — correct when pairing with a custom tool
-4. Wrap root in `<McpUseProvider autoSize>`
-5. **Always check `isPending` before accessing `props`**
+1. Export a default component; `viewConfig` is optional
+2. Pass the **tool name** to `useToolContext<"get-weather">()`
+3. Export the tool's `ToolRef` from the server entry so the types resolve
+4. Wrap root in `<ThemeProvider>`
+5. **Narrow on `view.status` before reading `view.toolOutput`**
 
-**Production builds (`mcp-use build`):** Never use bare `useWidget()` without a props generic — fields default to `unknown` and TypeScript will fail (e.g. TS2322). If you use `callTool` from `useWidget()`, treat `structuredContent` and nested values as `unknown` until you parse with Zod, narrow with `typeof`/`Array.isArray`, or assign to typed variables; do not pass `unknown` directly as JSX children or string props.
+**Production builds (`mcp-use build`):** Never use bare `useToolContext()` without a props generic — fields default to `unknown` and TypeScript will fail (e.g. TS2322). If you use `callTool` from `useToolContext()`, treat `structuredContent` and nested values as `unknown` until you parse with Zod, narrow with `typeof`/`Array.isArray`, or assign to typed variables; do not pass `unknown` directly as JSX children or string props.
 
 ---
 
 ## Widget Metadata
 
-The `widgetMetadata` export defines your widget's contract:
+The `viewConfig` export defines your widget's contract:
 
 ```typescript
-export const widgetMetadata: WidgetMetadata = {
-  description: "Brief description of what this widget displays",
-  props: z.object({
-    // Define all props the widget expects
-    id: z.string(),
-    title: z.string(),
-    count: z.number(),
-    items: z.array(z.object({
-      name: z.string(),
-      value: z.number()
-    }))
-  }),
-  exposeAsTool: false  // Default; omit or set explicitly when pairing with a custom tool
-};
+export const viewConfig = {
+  autoResize: true,                              // default; false = report size yourself
+  displayModes: ["inline", "fullscreen", "pip"], // default; must contain "inline"
+} satisfies ViewConfig;
 ```
 
-**Fields:**
-- `description` - What the widget displays/does
-- `props` - Zod schema defining expected props shape
-- `exposeAsTool` - Set to `true` to auto-register as a tool (default: `false`)
-- `metadata.invoking` - Status text shown in inspector while tool runs (auto-default: `"Loading {name}..."`)
-- `metadata.invoked` - Status text shown in inspector after tool completes (auto-default: `"{name} ready"`)
+**Fields — that is the whole surface:**
+- `autoResize` - Let the host observe the document and track size changes (default `true`)
+- `displayModes` - Modes this view renders correctly in (default all three)
+
+Everything else moved to the **bound tool** in your server entry:
 
 ```typescript
-export const widgetMetadata: WidgetMetadata = {
+view: {
+  name: "weather-display",
+  description: "What the view resource is",   // was viewConfig.description
+  csp: { connectDomains: ["https://api.weather.com"] },
+  prefersBorder: false,
+}
+```
+
+There is no `props` (the tool's `outputSchema` is the contract), no `exposeAsTool`,
+and no `invoking` / `invoked` — v2 dropped those status strings entirely. Render your
+own pending state from `useToolContext().status`.
+
+```typescript
+// On the TOOL, in your server entry — not on the view module:
+view: {
+  name: "weather-display",
   description: "Display weather information for a city",
-  props: propsSchema,
-  metadata: {
-    invoking: "Fetching weather...", // Shimmer text while tool runs
-    invoked: "Weather loaded",       // Static text when complete
-    csp: { connectDomains: ["https://api.weather.com"] },
-  },
-};
+  csp: { connectDomains: ["https://api.weather.com"] },
+}
 ```
 
 These status texts appear as animated shimmer text (pending) and static text (complete) in the MCP Inspector and ChatGPT. The values also flow to `openai/toolInvocation/invoking`/`invoked` in tool metadata automatically.
 
 ---
 
-## useWidget() Hook
+## useToolContext() Hook
 
-The `useWidget()` hook provides access to props and widget state:
+The `useToolContext()` hook provides access to props and widget state:
 
 ```typescript
 const {
@@ -177,7 +186,7 @@ const {
   isPending,    // True while props are loading
   setState,     // Update widget state
   state,        // Current widget state
-} = useWidget();
+} = useToolContext();
 ```
 
 **To call tools from a widget**, use the dedicated `useCallTool()` hook — see [interactivity.md](interactivity.md).
@@ -186,7 +195,8 @@ const {
 Data passed from tool's `widget({ props })` response:
 
 ```typescript
-const { props } = useWidget();
+const view = useToolContext();
+  const props = view.toolOutput;
 
 // Access props after isPending check
 if (!isPending) {
@@ -197,10 +207,13 @@ if (!isPending) {
 
 **Always check `isPending` before accessing `props`:**
 ```typescript
-❌ const { props } = useWidget();
+❌ const view = useToolContext();
+  const props = view.toolOutput;
    return <div>{props.city}</div>;  // Error! props undefined while loading
 
-✅ const { props, isPending } = useWidget();
+✅ const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
    if (isPending) return <div>Loading...</div>;
    return <div>{props.city}</div>;  // Safe
 ```
@@ -219,13 +232,13 @@ Boolean indicating if props are still loading.
 3. Widget re-renders → `isPending = false`, `props` contains data
 
 ```typescript
-const { isPending } = useWidget();
+const isPending = useToolContext().status === "pending";
 
 if (isPending) {
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>Loading...</div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 
@@ -236,49 +249,53 @@ if (isPending) {
 
 ```typescript
 // ✅ Pattern 1: Early return (recommended)
-if (isPending) return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
-return <McpUseProvider autoSize><div>{props.data}</div></McpUseProvider>;
+if (isPending) return <ThemeProvider><div>Loading...</div></ThemeProvider>;
+return <ThemeProvider><div>{props.data}</div></ThemeProvider>;
 
 // ✅ Pattern 2: Conditional rendering
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     {isPending ? <div>Loading...</div> : <div>{props.data}</div>}
-  </McpUseProvider>
+  </ThemeProvider>
 );
 
 // ✅ Pattern 3: Optional chaining (when props might be undefined)
-return <McpUseProvider autoSize><div>{props?.data ?? "Loading..."}</div></McpUseProvider>;
+return <ThemeProvider><div>{props?.data ?? "Loading..."}</div></ThemeProvider>;
 ```
 
 ---
 
-## McpUseProvider
+## ThemeProvider
 
 **Required wrapper** for all widgets. Provides context and handles iframe sizing.
 
 ```typescript
-import { McpUseProvider } from "mcp-use/react";
+import { ThemeProvider } from "mcp-use/react";
 
 export default function MyWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         {/* Your widget content */}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
 
 **Props:**
-- `autoSize={true}` - Automatically resize iframe to content (recommended)
-- `autoSize={false}` - Fixed height, widget handles scrolling
+- `colorScheme` - Also set `color-scheme` on the document root to match the theme
+
+Auto-resize is not a prop here. It is on by default; opt out with
+`viewConfig.autoResize: false` and drive it with `useSendSizeChanged()`.
 
 **Must wrap:**
 - ✅ Every return path (including loading states)
@@ -290,62 +307,64 @@ export default function MyWidget() {
 
 ### Simple Props
 ```typescript
-export const widgetMetadata: WidgetMetadata = {
+export const viewConfig: ViewConfig = {
   props: z.object({
     message: z.string(),
     count: z.number()
   }),
-  exposeAsTool: false
 };
 
 export default function SimpleWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
 
-  if (isPending) return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+  if (isPending) return <ThemeProvider><div>Loading...</div></ThemeProvider>;
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         <p>{props.message}</p>
         <p>Count: {props.count}</p>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
 
 ### Array Props
 ```typescript
-export const widgetMetadata: WidgetMetadata = {
+export const viewConfig: ViewConfig = {
   props: z.object({
     items: z.array(z.object({
       id: z.string(),
       name: z.string()
     }))
   }),
-  exposeAsTool: false
 };
 
 export default function ListWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
 
-  if (isPending) return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+  if (isPending) return <ThemeProvider><div>Loading...</div></ThemeProvider>;
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <ul>
         {props.items.map(item => (
           <li key={item.id}>{item.name}</li>
         ))}
       </ul>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
 
 ### Nested Props
 ```typescript
-export const widgetMetadata: WidgetMetadata = {
+export const viewConfig: ViewConfig = {
   props: z.object({
     user: z.object({
       name: z.string(),
@@ -355,46 +374,48 @@ export const widgetMetadata: WidgetMetadata = {
       })
     })
   }),
-  exposeAsTool: false
 };
 
 export default function ProfileWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
 
-  if (isPending) return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+  if (isPending) return <ThemeProvider><div>Loading...</div></ThemeProvider>;
 
   const { user } = props;
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         <img src={user.profile.avatar} alt={user.name} />
         <h2>{user.name}</h2>
         <p>{user.profile.bio}</p>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
 
 ### Optional Props
 ```typescript
-export const widgetMetadata: WidgetMetadata = {
+export const viewConfig: ViewConfig = {
   props: z.object({
     title: z.string(),
     subtitle: z.string().optional(),  // May be undefined
     items: z.array(z.string())
   }),
-  exposeAsTool: false
 };
 
 export default function FlexibleWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
 
-  if (isPending) return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+  if (isPending) return <ThemeProvider><div>Loading...</div></ThemeProvider>;
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         <h1>{props.title}</h1>
         {props.subtitle && <h2>{props.subtitle}</h2>}
@@ -402,7 +423,7 @@ export default function FlexibleWidget() {
           {props.items.map((item, i) => <li key={i}>{item}</li>)}
         </ul>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -425,8 +446,8 @@ my-server/
 
 **Naming convention:**
 - Use kebab-case for widget names
-- Tool config: `widget: { name: "weather-display" }`
-- File: `resources/weather-display.tsx`
+- Tool config: `view: { name: "weather-display" }`
+- File: `views/weather-display/view.tsx`
 
 ---
 
@@ -434,11 +455,11 @@ my-server/
 
 For type safety, infer props type from schema:
 
-⚠️ **CRITICAL:** Always define your Zod schema in a separate constant before `widgetMetadata`. Never infer types from `widgetMetadata.props` - TypeScript will lose type information and the result will be `unknown`.
+⚠️ **CRITICAL:** Always define your Zod schema in a separate constant before `viewConfig`. Never infer types from `viewConfig.props` - TypeScript will lose type information and the result will be `unknown`.
 
 ```typescript
 import { z } from "zod";
-import { McpUseProvider, useWidget, type WidgetMetadata } from "mcp-use/react";
+import { ThemeProvider, useToolContext, type ViewConfig } from "mcp-use/react";
 
 const propsSchema = z.object({
   city: z.string(),
@@ -446,27 +467,23 @@ const propsSchema = z.object({
   conditions: z.string()
 });
 
-export const widgetMetadata: WidgetMetadata = {
-  description: "Display weather",
-  props: propsSchema,
-  exposeAsTool: false
-};
-
-type Props = z.infer<typeof propsSchema>;
+export const viewConfig = {} satisfies ViewConfig;
 
 export default function WeatherWidget() {
-  const { props, isPending } = useWidget<Props>();
+  const view = useToolContext<"get-weather">();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
 
-  if (isPending) return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+  if (isPending) return <ThemeProvider><div>Loading...</div></ThemeProvider>;
 
   // Now props is fully typed!
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         <h2>{props.city}</h2>  {/* ✓ TypeScript knows this is string */}
         <p>{props.temp}°C</p>   {/* ✓ TypeScript knows this is number */}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -479,34 +496,39 @@ export default function WeatherWidget() {
 ```typescript
 // ❌ Bad - props undefined during loading
 export default function BadWidget() {
-  const { props } = useWidget();
+  const view = useToolContext();
+  const props = view.toolOutput;
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>{props.title}</div>  {/* Error! */}
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 
 // ✅ Good
 export default function GoodWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
 
-  if (isPending) return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+  if (isPending) return <ThemeProvider><div>Loading...</div></ThemeProvider>;
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>{props.title}</div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
 
-### ❌ Missing McpUseProvider
+### ❌ Missing ThemeProvider
 ```typescript
 // ❌ Bad - Missing provider
 export default function BadWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
 
   if (isPending) return <div>Loading...</div>;
 
@@ -515,36 +537,22 @@ export default function BadWidget() {
 
 // ✅ Good
 export default function GoodWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
 
-  if (isPending) return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+  if (isPending) return <ThemeProvider><div>Loading...</div></ThemeProvider>;
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>{props.title}</div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
 
-### `exposeAsTool` — default is `false`
-```typescript
-// ✅ Default — widget is a resource only, exposed via a custom tool
-export const widgetMetadata: WidgetMetadata = {
-  description: "...",
-  props: z.object({ ... })
-  // exposeAsTool defaults to false
-};
 
-// ✅ Explicit opt-in to auto-registration
-export const widgetMetadata: WidgetMetadata = {
-  description: "...",
-  props: z.object({ ... }),
-  exposeAsTool: true  // Auto-registers widget as a tool
-};
-```
-
-### ❌ Missing Type Parameter on useWidget
+### ❌ Missing Type Parameter on useToolContext
 ```typescript
 // ❌ Bad - props is UnknownObject, no autocomplete or type safety
 const propsSchema = z.object({
@@ -553,7 +561,8 @@ const propsSchema = z.object({
 });
 
 export default function BadWidget() {
-  const { props } = useWidget();  // props is UnknownObject
+  const view = useToolContext();
+  const props = view.toolOutput;  // props is UnknownObject
   return <div>{props.title}</div>;  // No IDE support, runtime errors possible
 }
 
@@ -566,15 +575,16 @@ const propsSchema = z.object({
 type Props = z.infer<typeof propsSchema>;
 
 export default function GoodWidget() {
-  const { props } = useWidget<Props>();  // props is properly typed
+  const view = useToolContext<"get-weather">();
+  const props = view.toolOutput;  // props is properly typed
   return <div>{props.title}</div>;  // Full autocomplete and type checking
 }
 ```
 
-### ❌ Inferring Type from widgetMetadata.props
+### ❌ Inferring Type from viewConfig.props
 ```typescript
 // ❌ Bad - Type inference fails, Props is unknown
-export const widgetMetadata: WidgetMetadata = {
+export const viewConfig: ViewConfig = {
   description: "...",
   props: z.object({
     title: z.string(),
@@ -582,10 +592,11 @@ export const widgetMetadata: WidgetMetadata = {
   })  // Inline schema definition
 };
 
-type Props = z.infer<typeof widgetMetadata.props>;  // Props is unknown!
+type Props = z.infer<typeof viewConfig.props>;  // Props is unknown!
 
 export default function BadWidget() {
-  const { props } = useWidget<Props>();
+  const view = useToolContext<"get-weather">();
+  const props = view.toolOutput;
   return <div>{props.title}</div>;  // No autocomplete, no type safety
 }
 
@@ -595,20 +606,16 @@ const propsSchema = z.object({
   count: z.number()
 });
 
-export const widgetMetadata: WidgetMetadata = {
-  description: "...",
-  props: propsSchema  // Reference the schema variable
-};
-
-type Props = z.infer<typeof propsSchema>;  // Props is properly typed!
+export const viewConfig = {} satisfies ViewConfig;
 
 export default function GoodWidget() {
-  const { props } = useWidget<Props>();
+  const view = useToolContext<"get-weather">();
+  const props = view.toolOutput;
   return <div>{props.title}</div>;  // Full autocomplete and type checking
 }
 ```
 
-**Why this happens:** The `WidgetMetadata` type is generic, so TypeScript can't preserve the specific Zod schema type when defined inline. Always extract your schema to a separate constant before using it in `widgetMetadata`.
+**Why this happens:** The `ViewConfig` type is generic, so TypeScript can't preserve the specific Zod schema type when defined inline. Always extract your schema to a separate constant before using it in `viewConfig`.
 
 ---
 
@@ -655,7 +662,7 @@ Equivalently, `mcp-use client <name> tools call <tool> ... --screenshot` calls t
 
 ```typescript
 // index.ts
-import { MCPServer, widget, text } from "mcp-use/server";
+import { MCPServer, widget, text } from "mcp-use";
 import { z } from "zod";
 
 const server = new MCPServer({
@@ -670,10 +677,8 @@ server.tool(
     schema: z.object({
       query: z.string().describe("Search query")
     }),
-    widget: {
+    view: {
       name: "product-list",
-      invoking: "Searching products...",
-      invoked: "Products loaded"
     }
   },
   async ({ query }) => {
@@ -690,15 +695,15 @@ server.tool(
   }
 );
 
-server.listen();
+export default server;
 ```
 
 ```tsx
-// resources/product-list.tsx
-import { McpUseProvider, useWidget, type WidgetMetadata } from "mcp-use/react";
+// views/product-list/view.tsx
+import { ThemeProvider, useToolContext, type ViewConfig } from "mcp-use/react";
 import { z } from "zod";
 
-export const widgetMetadata: WidgetMetadata = {
+export const viewConfig: ViewConfig = {
   description: "Display product search results",
   props: z.object({
     products: z.array(z.object({
@@ -710,22 +715,23 @@ export const widgetMetadata: WidgetMetadata = {
     query: z.string(),
     totalCount: z.number()
   }),
-  exposeAsTool: false
 };
 
 export default function ProductList() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
 
   if (isPending) {
     return (
-      <McpUseProvider autoSize>
+      <ThemeProvider>
         <div style={{ padding: 20 }}>Loading products...</div>
-      </McpUseProvider>
+      </ThemeProvider>
     );
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ padding: 20 }}>
         <h2>Search: "{props.query}"</h2>
         <p>Found {props.totalCount} products</p>
@@ -740,7 +746,7 @@ export default function ProductList() {
           ))}
         </div>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```

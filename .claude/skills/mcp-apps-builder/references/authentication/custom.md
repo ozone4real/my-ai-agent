@@ -14,7 +14,7 @@ Two factories cover everything that isn't a built-in provider:
 Use this when your identity provider supports DCR and advertises a `registration_endpoint`. Clients discover the endpoints and register themselves against the upstream.
 
 ```typescript
-import { MCPServer, oauthCustomProvider, object } from "mcp-use/server";
+import { MCPServer, oauthCustomProvider, object } from "mcp-use";
 import { jwtVerify, createRemoteJWKSet } from "jose";
 
 const JWKS = createRemoteJWKSet(
@@ -57,7 +57,7 @@ server.tool(
     })
 );
 
-server.listen();
+export default server;
 ```
 
 ### Configuration Options
@@ -151,7 +151,7 @@ Client → /mcp/...   → MCP server verifies bearer via verifyToken()
 Use `jwksVerifier` to build a standard JWT+JWKS `verifyToken`. It handles signature verification, issuer checking, and optional audience validation. Pair it with `oauthProxy` for any JWT-based provider.
 
 ```typescript
-import { oauthProxy, jwksVerifier } from "mcp-use/server";
+import { oauthProxy, jwksVerifier } from "mcp-use";
 
 oauthProxy({
   // ...

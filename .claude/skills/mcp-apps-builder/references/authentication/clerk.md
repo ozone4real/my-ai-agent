@@ -9,7 +9,7 @@ Setting up OAuth with Clerk. DCR mode only — MCP clients register themselves d
 ## Quick Start
 
 ```typescript
-import { MCPServer, oauthClerkProvider, object } from "mcp-use/server";
+import { MCPServer, oauthClerkProvider, object } from "mcp-use";
 
 const server = new MCPServer({
   name: "my-server",
@@ -27,7 +27,7 @@ server.tool(
     })
 );
 
-server.listen();
+export default server;
 ```
 
 With a `.env` file:

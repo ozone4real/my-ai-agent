@@ -1,5 +1,12 @@
 # Tools
 
+> **v2 note:** examples on this page that `return text(...)` / `return object(...)`
+> only compile on tools **without** an `outputSchema`. With one, return a raw
+> `CallToolResult` — see [response-helpers.md](response-helpers.md). Also `schema:`
+> is now an alias for `inputSchema:` (prefer the latter — it matches the wire field),
+> and a tool binds a view with `view: { name }`, not `widget: { name }`.
+
+
 Tools are backend actions the AI can call. They take structured input and return output.
 
 **Use tools for:** Actions, operations, API calls, mutations, data fetching
@@ -9,13 +16,12 @@ Tools are backend actions the AI can call. They take structured input and return
 ## Basic Tool
 
 ```typescript
-import { MCPServer, text } from "mcp-use/server";
+import { MCPServer, text } from "mcp-use";
 import { z } from "zod";
 
 const server = new MCPServer({
   name: "my-server",
   version: "1.0.0",
-  baseUrl: process.env.MCP_URL || "http://localhost:3000"
 });
 
 server.tool(
@@ -186,7 +192,7 @@ server.tool({ name: "personalise", schema: z.object({}) }, async (_p, ctx) => {
 **`ctx.client.user()` fields:**
 - `subject` — stable opaque user ID (same across conversations, e.g. `openai/subject`)
 - `conversationId` — current chat thread ID (changes per chat, e.g. `openai/session`)
-- `locale` — BCP-47 locale, e.g. `"it-IT"` (server-side; inside widgets prefer `useWidget().locale` which is client-side and fresher)
+- `locale` — BCP-47 locale, e.g. `"it-IT"` (server-side; inside widgets prefer `useToolContext().locale` which is client-side and fresher)
 - `location` — `{ city, region, country, timezone, latitude, longitude }`
 - `userAgent` — browser/host user-agent string
 - `timezoneOffsetMinutes` — UTC offset in minutes
@@ -222,7 +228,7 @@ return object({
 **Always use `error()` helper, don't throw:**
 
 ```typescript
-import { text, error } from "mcp-use/server";
+import { text, error } from "mcp-use";
 
 server.tool(
   { name: "fetch-user", schema: z.object({ id: z.string() }) },
@@ -261,7 +267,7 @@ server.tool(
 When your tool returns visual UI:
 
 ```typescript
-import { widget, text } from "mcp-use/server";
+import { widget, text } from "mcp-use";
 
 server.tool(
   {
@@ -270,10 +276,8 @@ server.tool(
     schema: z.object({
       query: z.string().describe("Search query")
     }),
-    widget: {
-      name: "product-list",           // Must match resources/product-list.tsx
-      invoking: "Searching products...",
-      invoked: "Products loaded"
+    view: {
+      name: "product-list",           // Must match views/product-list/view.tsx
     }
   },
   async ({ query }) => {
@@ -292,10 +296,10 @@ server.tool(
 ```
 
 **Widget tool requirements:**
-- Add `widget: { name }` to tool config
+- Add `view: { name }` to tool config (requires `outputSchema`)
 - Return `widget({ props, output })` from handler
-- Create matching widget file: `resources/{name}.tsx`
-- `exposeAsTool` defaults to `false` — omitting it is correct for this pattern
+- Create matching widget file: `views/{name}/view.tsx`
+- A view has no `exposeAsTool` in v2 — it is reached solely through this tool
 
 See [../widgets/basics.md](../widgets/basics.md) for widget implementation.
 

@@ -87,7 +87,7 @@ You need three things beyond the standard `MCPServer` setup:
 3. Mount login and consent pages
 
 ```typescript
-import { MCPServer, oauthBetterAuthProvider } from "mcp-use/server";
+import { MCPServer, oauthBetterAuthProvider } from "mcp-use";
 import { auth } from "./auth.js";
 import {
   oauthProviderAuthServerMetadata,
@@ -118,7 +118,7 @@ const openIdConfigHandler = oauthProviderOpenIdConfigMetadata(auth, { headers: c
 server.app.get("/.well-known/openid-configuration", (c) => openIdConfigHandler(c.req.raw));
 server.app.get("/.well-known/openid-configuration/api/auth", (c) => openIdConfigHandler(c.req.raw));
 
-await server.listen(3000);
+export default server;
 ```
 
 ### 4. Add login and consent pages

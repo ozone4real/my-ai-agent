@@ -1,5 +1,10 @@
 # MCP Concepts
 
+> **v2 note:** "widget" is a **view** in v2. Views are not registered as tools; a tool
+> binds one with `view: { name }` and the view renders that tool's `structuredContent`.
+> `exposeAsTool` no longer exists.
+
+
 Core primitives you'll use to build MCP servers with mcp-use.
 
 ## The Four Primitives
@@ -51,7 +56,7 @@ A **tool that returns visual UI**. Same as a tool but renders a React component.
 
 ```typescript
 server.tool(
-  { name, schema, widget: { name: "widget-name" } },
+  { name, schema, view: { name: "widget-name" } },
   async (input) => widget({ props: { data }, output: text("...") })
 );
 ```
@@ -105,15 +110,24 @@ UI state (selections, filters) lives in the widget via `useState` or `setState`.
 ❌ `select-item` tool, `set-filter` tool
 ✅ Widget manages internally
 
-### 4. `exposeAsTool` defaults to `false`
-Widgets are not auto-registered as tools by default. When defining a custom tool with `widget: { name }`, omitting `exposeAsTool` (or leaving it `false`) is correct — the custom tool handles registration:
+### 4. A View Is Reached Through Its Tool
+Views are never auto-registered as tools. A tool binds one with `view: { name }`,
+and the view renders that tool's `structuredContent`, typed by its `outputSchema`:
 
 ```typescript
-export const widgetMetadata: WidgetMetadata = {
-  description: "...",
-  props: z.object({...}),
-  // exposeAsTool defaults to false — correct for custom-tool pattern
-};
+// server entry
+export const getWeather = server.tool(
+  {
+    name: "get-weather",
+    inputSchema: z.object({ city: z.string().describe("City name") }),
+    outputSchema: z.object({ city: z.string(), temp: z.number() }),
+    view: { name: "weather-display" },   // -> views/weather-display/view.tsx
+  },
+  async ({ city }) => {
+    const data = { city, temp: await lookup(city) };
+    return { content: [{ type: "text", text: `${data.temp}°` }], structuredContent: data };
+  }
+);
 ```
 
 ---

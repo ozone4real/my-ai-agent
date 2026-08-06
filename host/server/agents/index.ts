@@ -6,14 +6,29 @@ import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatDeepSeek } from "@langchain/deepseek";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { MCPClient } from "@mcp-use/client";
+import ServersDefinition from "../../../mcp_servers/servers_definition";
+import { convert, serialize, toLangChainHistory } from "./message_converters/deep_seek";
+import type { DeepSeekMessage, LangChainMessage } from "./message_converters/deep_seek";
+
 
 enum ModelType {
-  SONNET_4_6 = "claude-sonnet-4-6",
-  OPUS_4_6 = "claude-opus-4-6",
-  SONNET_4_7 = "claude-sonnet-4-7",
-  OPUS_4_7 = "claude-opus-4-7",
   SONNET_4_8 = "claude-sonnet-4-8",
-  OPUS_4_8 = "claude-opus-4-8"
+  OPUS_4_8 = "claude-opus-4-8",
+  SONNET_5_0 = "claude-sonnet-5-0",
+  OPUS_5_0 = "claude-opus-5-0",
+  DEEPSEEK_V4_FLASH = "deepseek-v4-flash"
+}
+
+/**
+ * One prior turn of history. Either form is accepted: LangChain messages as
+ * they come off {@link Agent.conversationHistory}, or the DeepSeek JSON the
+ * routes store — both are normalized before reaching the agent.
+ */
+export type AgentMessage = DeepSeekMessage | LangChainMessage
+
+const MODELS = {
+  "deepseek": [ModelType.DEEPSEEK_V4_FLASH],
+  "anthropic": [ModelType.SONNET_4_8, ModelType.OPUS_4_8, ModelType.SONNET_5_0, ModelType.OPUS_5_0]
 }
 
 export interface AgentStreamPayload {
@@ -41,6 +56,36 @@ export type AgentStreamEventPayload =
   | { phase: "reasoning"; content: string }
   | { phase: "working"; content: AgentToolCall }
   | { phase: "done"; content: string }
+
+/** How much reasoning to gather before emitting a payload. */
+const REASONING_CHUNK_WORDS = 50
+
+/**
+ * Index just past the `count`-th word of `text`, or -1 when the text doesn't
+ * yet hold a provable `count` words.
+ *
+ * "Provable" is the point: a streamed buffer can end mid-word, so the cut is
+ * only returned once a *further* word has been seen — that's what shows word
+ * `count` was terminated rather than still arriving. Working in indices instead
+ * of a split/join keeps the original whitespace, so the emitted chunks
+ * concatenate back into exactly the text the model produced.
+ */
+const splitAfterWords = (text: string, count: number): number => {
+  const words = /\S+/g
+  let seen = 0
+  let end = -1
+  let match: RegExpExecArray | null
+
+  while ((match = words.exec(text)) !== null) {
+    seen++
+    if (seen === count) {
+      end = match.index + match[0].length
+      continue
+    }
+    if (seen > count) return end
+  }
+  return -1
+}
 
 /**
  * Unwrap the arguments an `on_tool_start` event reports.
@@ -121,75 +166,45 @@ const readReasoning = (chunk: any): string => {
   return ""
 }
 
-/** One prior turn, in the shape the routes already store them. */
-export interface AgentMessage {
-  role: "user" | "assistant";
-  content: string;
+export interface AgentOptions {
+  model?: ModelType
+  /**
+   * The conversation this agent is answering in, when there is one. Surfaced to
+   * the model so it can pass provenance to tools that ask for it — notably
+   * `schedule-task`, whose `sourceConversation` is otherwise unknowable from
+   * inside the run.
+   */
+  conversationId?: string
 }
 
-// The LangChain agent wants LangChain messages. NOTE: they must be passed as
-// `externalHistory` — the sibling `messages` run option is read only by the
-// native (non-LangChain) agent, and this entry point drops it silently, so a
-// history sent that way arrives as no history at all.
-const toLangChainHistory = (messages: AgentMessage[]): BaseMessage[] =>
-  messages.map((message) =>
-    message.role === "assistant"
-      ? new AIMessage(message.content)
-      : new HumanMessage(message.content)
-  )
+/**
+ * The run-scoped facts the model should know, as a system instruction.
+ *
+ * Returns undefined when there's nothing to say, so a background run (a
+ * scheduled task, say) doesn't get a paragraph explaining that it has no
+ * conversation.
+ */
+const buildContextInstructions = (conversationId?: string): string | undefined => {
+  if (!conversationId) return undefined
+  return [
+    `You are answering inside conversation ${conversationId}.`,
+    `When a tool takes a conversation id — for example the sourceConversation`,
+    `argument of schedule-task — pass exactly that value. Do not invent one, and`,
+    `do not mention the id to the user unless they ask for it.`,
+  ].join(" ")
+}
 
 export class Agent {
   public agent: MCPAgent
   private llm: ChatDeepSeek
   
-  public mcpServers: Record<string, MCPServerConfig> = {
-    filesystem: {
-      command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/ezenwaogbonna/Desktop"],
-    },
-    shellCommandExecutor: {
-      command: "npx",
-      args: ["tsx", "mcp_servers/command_executor.ts"]
-    },
-    chromedevtools: {
-      "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest", "--browser-url=http://127.0.0.1:9222", "--ignoreDefaultChromeArg=--enable-automation"]
-    },
-    // Web search against the local SearXNG in searxng/ (`npm run search:up`).
-    // Fully self-hosted and key-free: SearXNG is AGPL-3.0, mcp-searxng is MIT.
-    // If the container isn't running, this server starts but every search fails
-    // — the agent's other tools are unaffected.
-    websearch: {
-      command: "npx",
-      args: ["-y", "mcp-searxng"],
-    // These are operator caps, not defaults the model can talk its way past —
-    // mcp-searxng clamps whatever the model asks for down to them.
-    env: {
-        SEARXNG_URL: process.env.SEARXNG_URL ?? "http://localhost:8888",
-        // `text` is title + url + snippet per hit; the JSON format also carries
-        // engine names and per-engine scores the model has no use for.
-        SEARXNG_DEFAULT_RESPONSE_FORMAT: "text",
-        // Smaller tool schemas. These are re-sent on every model call, so the
-        // saving is per-turn, not per-search.
-        SEARXNG_LITE_TOOLS: "true",
-        // A metasearch page is ~37 hits across engines. The answer is almost
-        // always in the first few, and the tail is mostly near-duplicates.
-        SEARXNG_MAX_RESULTS: "5",
-        SEARXNG_MAX_RESULT_CHARS: "4000",
-        // The one that actually dominates the bill: without a cap, one
-        // web_url_read of a long article can outweigh every search in the turn.
-        URL_READ_MAX_CHARS: "8000",
-        // Stop before downloading something huge just to extract 8k of text.
-        URL_READ_MAX_CONTENT_LENGTH_BYTES: "1000000",
-        // Agents re-issue near-identical queries while reasoning; serve those
-        // from memory instead of re-querying every engine.
-        SEARCH_CACHE_TTL_MS: "300000",
-      },
-    },
-  }
+  public mcpServers: Record<string, MCPServerConfig> = ServersDefinition
   private client: MCPClient
 
-  constructor(model: ModelType = ModelType.SONNET_4_6, temperature: Number = 0.7) {
+  constructor({
+    model = ModelType.DEEPSEEK_V4_FLASH,
+    conversationId,
+  }: AgentOptions = {}) {
     // const llm = new ChatAnthropic({
     //   model,
     //   temperature: 0.7,
@@ -198,7 +213,7 @@ export class Agent {
     // });
 
     const llm = new ChatDeepSeek({
-      model: "deepseek-v4-flash",
+      model,
       maxTokens: 10000,
       apiKey: process.env.DEEP_SEEK_API_KEY,
       streaming: true
@@ -211,14 +226,21 @@ export class Agent {
     this.agent = new MCPAgent({
       llm,
       client: this.client,
-      maxSteps: 100
+      maxSteps: 100,
+      // Appended to the generated system message, after the tool descriptions.
+      //
+      // NOTE: this is the only way to get a system instruction in. Putting a
+      // SystemMessage in `externalHistory` looks like it should work and is
+      // silently discarded — the agent filters that array down to human, AI and
+      // tool messages before use.
+      additionalInstructions: buildContextInstructions(conversationId),
     })
   }
 
   async run(prompt: string, context: AgentMessage[] = []) {
     const result = await this.agent.run({
       prompt,
-      externalHistory: toLangChainHistory(context),
+      externalHistory: toLangChainHistory(context)
     })
     return result;
   }
@@ -260,6 +282,29 @@ export class Agent {
     let finalText = ""
     let lastText = ""
 
+    // Providers emit reasoning a few characters at a time, so forwarding each
+    // one is a payload per token. Batch into REASONING_CHUNK_WORDS pieces and
+    // hold the remainder back — it gets topped up by the next chunk, or flushed
+    // when the reasoning ends.
+    let reasoningBuffer = ""
+
+    /**
+     * @param flush - Emit a short trailing piece too. Pass `true` wherever the
+     * reasoning is over, so a partial chunk isn't stranded in the buffer behind
+     * a tool call or the final answer.
+     */
+    function* drainReasoning(flush: boolean): Generator<AgentStreamEventPayload> {
+      let cut: number
+      while ((cut = splitAfterWords(reasoningBuffer, REASONING_CHUNK_WORDS)) !== -1) {
+        yield { phase: "reasoning", content: reasoningBuffer.slice(0, cut) }
+        reasoningBuffer = reasoningBuffer.slice(cut)
+      }
+      if (flush && reasoningBuffer.trim().length > 0) {
+        yield { phase: "reasoning", content: reasoningBuffer }
+        reasoningBuffer = ""
+      }
+    }
+
     for await (const event of this.agent.streamEvents({
       prompt,
       manageConnector: true,
@@ -275,7 +320,10 @@ export class Agent {
           if (!chunk) break
 
           const reasoning = readReasoning(chunk)
-          if (reasoning) yield { phase: "reasoning", content: reasoning }
+          if (reasoning) {
+            reasoningBuffer += reasoning
+            yield* drainReasoning(false)
+          }
 
           // `text` concatenates only `type: "text"` blocks, so Anthropic
           // thinking and Gemini thought parts don't leak into the answer.
@@ -285,6 +333,10 @@ export class Agent {
         }
 
         case "on_chat_model_end": {
+          // This model call's thinking is finished — flush it so a later call's
+          // reasoning can't be glued onto the tail of this one's.
+          yield* drainReasoning(true)
+
           // A model call that requested tools is a step, not an answer.
           const output = event.data?.output as any
           const calledTools = (output?.tool_calls ?? []).length > 0
@@ -294,6 +346,7 @@ export class Agent {
         }
 
         case "on_tool_start":
+          yield* drainReasoning(true)
           yield {
             phase: "working",
             content: { tool: event.name, args: readToolArgs(event.data?.input) },
@@ -302,11 +355,32 @@ export class Agent {
       }
     }
 
+    // Nothing follows but `done`, so anything still buffered goes out now.
+    yield* drainReasoning(true)
+
     // Fall back to the last thing the model said, so a run that ends on a
     // tool-calling turn (hitting maxSteps, say) still terminates with a reply
     // rather than silence.
     yield { phase: "done", content: finalText || lastText }
 
     await this.agent.close();
+  }
+
+  /**
+   * The thread so far, in the shape `externalHistory` takes — so it can be fed
+   * straight back into {@link Agent.run} / {@link Agent.stream} /
+   * {@link Agent.streamEvents} as their `context`.
+   */
+  get conversationHistory(): LangChainMessage[] {
+    return this.agent.getConversationHistory() as LangChainMessage[]
+  }
+
+  /**
+   * The same thread as plain DeepSeek/OpenAI JSON, for persisting. Unlike
+   * {@link Agent.conversationHistory} these are inert objects, not LangChain
+   * class instances, so they survive a round trip through a database.
+   */
+  get serializedConversationHistory(): AgentMessage[] {
+    return convert(serialize(this.conversationHistory))
   }
 }

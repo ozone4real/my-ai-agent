@@ -11,14 +11,13 @@ Complete end-to-end examples showing server + widget implementations for common 
 ### Server (index.ts)
 
 ```typescript
-import { MCPServer, text, widget, object, error } from "mcp-use/server";
+import { MCPServer, text, widget, object, error } from "mcp-use";
 import { z } from "zod";
 
 const server = new MCPServer({
   name: "weather-server",
   title: "Weather Server",
   version: "1.0.0",
-  baseUrl: process.env.MCP_URL || "http://localhost:3000"
 });
 
 // Mock weather data
@@ -38,10 +37,8 @@ server.tool(
     schema: z.object({
       city: z.string().describe("City name (e.g., 'New York', 'Tokyo')")
     }),
-    widget: {
+    view: {
       name: "weather-display",
-      invoking: "Fetching weather...",
-      invoked: "Weather loaded"
     }
   },
   async ({ city }) => {
@@ -77,16 +74,16 @@ server.resource(
   })
 );
 
-server.listen();
+export default server;
 ```
 
-### Widget (resources/weather-display.tsx)
+### Widget (views/weather-display/view.tsx)
 
 ```tsx
-import { McpUseProvider, useWidget, useWidgetTheme, type WidgetMetadata } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useViewTheme, type ViewConfig } from "mcp-use/react";
 import { z } from "zod";
 
-export const widgetMetadata: WidgetMetadata = {
+export const viewConfig: ViewConfig = {
   description: "Display weather information for a city",
   props: z.object({
     city: z.string(),
@@ -95,21 +92,22 @@ export const widgetMetadata: WidgetMetadata = {
     icon: z.string(),
     timestamp: z.string()
   }),
-  exposeAsTool: false
 };
 
 export default function WeatherDisplay() {
-  const { props, isPending } = useWidget();
-  const theme = useWidgetTheme();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
+  const theme = useViewTheme();
 
   if (isPending) {
     return (
-      <McpUseProvider autoSize>
+      <ThemeProvider>
         <div style={{ padding: 40, textAlign: "center" }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>🌍</div>
           <p>Loading weather...</p>
         </div>
-      </McpUseProvider>
+      </ThemeProvider>
     );
   }
 
@@ -118,7 +116,7 @@ export default function WeatherDisplay() {
   const secondaryColor = theme === "dark" ? "#b0b0b0" : "#666";
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{
         padding: 24,
         backgroundColor: bgColor,
@@ -138,7 +136,7 @@ export default function WeatherDisplay() {
           </div>
         </div>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -150,7 +148,7 @@ export default function WeatherDisplay() {
 ### Server (index.ts)
 
 ```typescript
-import { MCPServer, text, widget, object, error } from "mcp-use/server";
+import { MCPServer, text, widget, object, error } from "mcp-use";
 import { z } from "zod";
 
 const server = new MCPServer({
@@ -172,10 +170,8 @@ server.tool(
     name: "list-todos",
     description: "List all todos",
     schema: z.object({}),
-    widget: {
+    view: {
       name: "todo-list",
-      invoking: "Loading todos...",
-      invoked: "Todos loaded"
     }
   },
   async () => {
@@ -260,17 +256,17 @@ server.tool(
   }
 );
 
-server.listen();
+export default server;
 ```
 
-### Widget (resources/todo-list.tsx)
+### Widget (views/todo-list/view.tsx)
 
 ```tsx
 import { useState } from "react";
-import { McpUseProvider, useWidget, useWidgetTheme, useCallTool, type WidgetMetadata } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useViewTheme, useCallTool, type ViewConfig } from "mcp-use/react";
 import { z } from "zod";
 
-export const widgetMetadata: WidgetMetadata = {
+export const viewConfig: ViewConfig = {
   description: "Interactive todo list",
   props: z.object({
     todos: z.array(z.object({
@@ -281,12 +277,13 @@ export const widgetMetadata: WidgetMetadata = {
     totalCount: z.number(),
     completedCount: z.number()
   }),
-  exposeAsTool: false
 };
 
 export default function TodoList() {
-  const { props, isPending } = useWidget();
-  const theme = useWidgetTheme();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
+  const theme = useViewTheme();
   const { callTool: createTodo, isPending: isCreating } = useCallTool("create-todo");
   const { callTool: toggleTodo } = useCallTool("toggle-todo");
   const { callTool: deleteTodo } = useCallTool("delete-todo");
@@ -295,9 +292,9 @@ export default function TodoList() {
 
   if (isPending) {
     return (
-      <McpUseProvider autoSize>
+      <ThemeProvider>
         <div style={{ padding: 20 }}>Loading todos...</div>
-      </McpUseProvider>
+      </ThemeProvider>
     );
   }
 
@@ -332,7 +329,7 @@ export default function TodoList() {
   };
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ padding: 20, backgroundColor: colors.bg, color: colors.text }}>
         <h2 style={{ margin: "0 0 8px 0" }}>
           Todos ({props.completedCount}/{props.totalCount})
@@ -422,7 +419,7 @@ export default function TodoList() {
           </p>
         )}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -434,7 +431,7 @@ export default function TodoList() {
 ### Server (index.ts)
 
 ```typescript
-import { MCPServer, widget, text } from "mcp-use/server";
+import { MCPServer, widget, text } from "mcp-use";
 import { z } from "zod";
 
 const server = new MCPServer({
@@ -482,10 +479,8 @@ server.tool(
     schema: z.object({
       category: z.string().optional().describe("Filter by category (Italian, Indian, Salad)")
     }),
-    widget: {
+    view: {
       name: "recipe-browser",
-      invoking: "Loading recipes...",
-      invoked: "Recipes loaded"
     }
   },
   async ({ category }) => {
@@ -504,17 +499,17 @@ server.tool(
   }
 );
 
-server.listen();
+export default server;
 ```
 
-### Widget (resources/recipe-browser.tsx)
+### Widget (views/recipe-browser/view.tsx)
 
 ```tsx
 import { useState, useEffect } from "react";
-import { McpUseProvider, useWidget, useWidgetTheme, type WidgetMetadata } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useViewTheme, type ViewConfig } from "mcp-use/react";
 import { z } from "zod";
 
-export const widgetMetadata: WidgetMetadata = {
+export const viewConfig: ViewConfig = {
   description: "Browse and view recipes",
   props: z.object({
     recipes: z.array(z.object({
@@ -529,12 +524,13 @@ export const widgetMetadata: WidgetMetadata = {
     categories: z.array(z.string()),
     selectedCategory: z.string()
   }),
-  exposeAsTool: false
 };
 
 export default function RecipeBrowser() {
-  const { props, isPending } = useWidget();
-  const theme = useWidgetTheme();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
+  const theme = useViewTheme();
   const [selectedRecipe, setSelectedRecipe] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("all");
 
@@ -547,9 +543,9 @@ export default function RecipeBrowser() {
 
   if (isPending) {
     return (
-      <McpUseProvider autoSize>
+      <ThemeProvider>
         <div style={{ padding: 20 }}>Loading recipes...</div>
-      </McpUseProvider>
+      </ThemeProvider>
     );
   }
 
@@ -569,7 +565,7 @@ export default function RecipeBrowser() {
   const selected = filteredRecipes.find(r => r.id === selectedRecipe);
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ backgroundColor: colors.bg, color: colors.text }}>
         {/* Header */}
         <div style={{ padding: 16, borderBottom: `1px solid ${colors.border}` }}>
@@ -650,7 +646,7 @@ export default function RecipeBrowser() {
           </div>
         </div>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -669,7 +665,7 @@ Each example shows how to pair a tool with a widget for visual output.
 Todo list shows create/update/delete operations from within widgets using `useCallTool()`.
 
 ### 4. **Theme Support**
-All widgets use `useWidgetTheme()` to adapt to light/dark mode.
+All widgets use `useViewTheme()` to adapt to light/dark mode.
 
 ### 5. **State Management**
 Recipe browser demonstrates local widget state (selected recipe, filters) vs server state (recipe data).
@@ -695,7 +691,7 @@ Replace mock data with API calls:
 const WEATHER_API_KEY = process.env.WEATHER_API_KEY;
 
 server.tool(
-  { name: "get-weather", schema: z.object({ city: z.string() }), widget: { name: "weather-display" } },
+  { name: "get-weather", schema: z.object({ city: z.string() }), view: { name: "weather-display" } },
   async ({ city }) => {
     if (!WEATHER_API_KEY) {
       return error("WEATHER_API_KEY not configured. Set it in environment variables.");
@@ -743,7 +739,7 @@ db.exec(`
 `);
 
 server.tool(
-  { name: "list-todos", schema: z.object({}), widget: { name: "todo-list" } },
+  { name: "list-todos", schema: z.object({}), view: { name: "todo-list" } },
   async () => {
     const todos = db.prepare("SELECT * FROM todos ORDER BY created_at DESC").all();
 

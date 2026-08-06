@@ -10,39 +10,119 @@
 // the endpoint.
 //
 // Streaming contract — the server wraps every agent payload in a `token` event
-// whose data is an AgentStreamPayload:
+// whose data is an AgentStreamEventPayload:
 //   event: meta   data: { "conversationId": "..." }  // once, before the tokens
-//   event: token  data: { "phase": "working", "value": { action, observation } }
-//   event: token  data: { "phase": "done",    "value": "the final reply" }
+//   event: token  data: { "phase": "reasoning", "content": "…thinking text…" }
+//   event: token  data: { "phase": "working",   "content": { tool, args } }
+//   event: token  data: { "phase": "done",      "content": "the final reply" }
 //   event: error  data: { "message": "..." }
 //   event: done   data: {}                    // end of turn
 //
-// Only the `done` payload holds the reply. The `working` ones are intermediate
-// agent steps, shown as transient status while the turn is in flight.
+// Only the `done` payload holds the reply, and it always arrives last. The
+// `reasoning` ones are the model's thinking, batched server-side into ~50-word
+// pieces; `working` ones are tool calls, shown as transient status.
 //
 // Non-streaming contract (application/json):
 //   { "reply": "...", "conversationId": "..." }   on success
 //   { "error": "..." }                            on failure
 
-const ENDPOINT = "/conversations";
+const API = "/api";
+const ENDPOINT = `${API}/conversations`;
+const TASKS_ENDPOINT = `${API}/tasks`;
 
-/** A single agent step, as produced by LangChain / mcp-use. */
-export interface AgentStep {
-  action?: {
-    tool?: string;
-    toolInput?: unknown;
-    log?: string;
-  };
-  observation?: string;
+/** A scheduled task, as returned by `GET /tasks`. */
+export interface Task {
+  id: string;
+  creator: "user" | "assistant";
+  prompt: string;
+  /** Cron expression the task runs on. */
+  schedule: string;
+  /** Max number of runs; null means unlimited. */
+  limit: number | null;
+  sourceConversation: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
-export type AgentStreamPayload =
-  | { phase: "working"; value: AgentStep }
-  | { phase: "done"; value: string };
+/** One execution of a task. */
+export interface TaskRun {
+  id: string;
+  status: "in_progress" | "failed" | "success";
+  transcript: string | null;
+  startedAt: string;
+  endedAt: string;
+}
+
+/** A task plus its run history, newest run first. */
+export type TaskWithRuns = Task & { runs: TaskRun[] };
+
+/** Newest task first. Runs are not included — use `getTask` for those. */
+export async function listTasks(signal?: AbortSignal): Promise<Task[]> {
+  const res = await fetch(TASKS_ENDPOINT, {
+    headers: { accept: "application/json" },
+    signal,
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  const data = (await res.json()) as { tasks?: Task[] };
+  return data.tasks ?? [];
+}
+
+/** One task with its full run history. */
+export async function getTask(
+  taskId: string,
+  signal?: AbortSignal
+): Promise<TaskWithRuns> {
+  const res = await fetch(`${TASKS_ENDPOINT}/${encodeURIComponent(taskId)}`, {
+    headers: { accept: "application/json" },
+    signal,
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as TaskWithRuns;
+}
+
+/** Deletes the task and its runs. Returns how many runs went with it. */
+export async function deleteTask(taskId: string): Promise<number> {
+  const res = await fetch(`${TASKS_ENDPOINT}/${encodeURIComponent(taskId)}`, {
+    method: "DELETE",
+    headers: { accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  const data = (await res.json()) as { deletedRuns?: number };
+  return data.deletedRuns ?? 0;
+}
+
+/** Deletes the conversation and its messages. Returns how many messages went. */
+export async function deleteConversation(conversationId: string): Promise<number> {
+  const res = await fetch(`${ENDPOINT}/${encodeURIComponent(conversationId)}`, {
+    method: "DELETE",
+    headers: { accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  const data = (await res.json()) as { deletedMessages?: number };
+  return data.deletedMessages ?? 0;
+}
+
+/** A tool invocation the agent has started. */
+export interface AgentToolCall {
+  /** Tool name as registered by its MCP server, e.g. "searxng_web_search". */
+  tool: string;
+  /** Arguments the model passed, when the run reports them. */
+  args?: unknown;
+}
+
+export type AgentStreamEventPayload =
+  | { phase: "reasoning"; content: string }
+  | { phase: "working"; content: AgentToolCall }
+  | { phase: "done"; content: string };
 
 export interface ChatHandlers {
-  /** An intermediate step — render as transient status, not as the reply. */
-  onStep?: (step: AgentStep) => void;
+  /** A tool call — render as transient status, not as the reply. */
+  onStep?: (call: AgentToolCall) => void;
+  /**
+   * A piece of the model's thinking. Append these in order; the server has
+   * already batched them, so one call is one visible update.
+   */
+  onReasoning?: (chunk: string) => void;
   /** The effective reply. Fires once, at the end of the turn. */
   onReply?: (text: string) => void;
   /** Called on a server-reported error. */
@@ -200,10 +280,13 @@ async function readSseStream(
           case "token": {
             // Every agent payload arrives here; `phase` says which kind.
             if (payload?.phase === "done") {
-              reply = stringifyReply(payload.value);
+              reply = stringifyReply(payload.content);
               handlers.onReply?.(reply);
+            } else if (payload?.phase === "reasoning") {
+              const chunk = payload.content;
+              if (typeof chunk === "string" && chunk) handlers.onReasoning?.(chunk);
             } else if (payload?.phase === "working") {
-              handlers.onStep?.(payload.value ?? {});
+              handlers.onStep?.(payload.content ?? { tool: "" });
             }
             break;
           }

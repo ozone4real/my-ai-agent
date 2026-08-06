@@ -35,7 +35,26 @@ Comprehensive guide for building production-ready MCP servers with tools, resour
 
 **Before doing anything else, determine whether you are inside an existing mcp-use project.**
 
-**Detection:** Check the workspace for a `package.json` that lists `"mcp-use"` as a dependency, OR any `.ts` file that imports from `"mcp-use/server"`.
+**Detection:** Check the workspace for a `package.json` that lists `"mcp-use"` as a dependency, OR any `.ts` file that imports from `"mcp-use"`.
+
+> **Version:** these docs target **mcp-use v2** (verified against 2.0.4). v2 split the
+> package and renamed the UI layer. When reading code written for v1, expect:
+>
+> | v1 | v2 |
+> |---|---|
+> | `from "mcp-use/server"` | `from "mcp-use"` — the `./server` subpath was **deleted** |
+> | `MCPAgent` / `MCPClient` from `mcp-use` | `@mcp-use/agent` (+ `/langchain`) / `@mcp-use/client` |
+> | `baseUrl` in `MCPServer({...})` | removed; the CLI reads `MCP_URL` from the env |
+> | `server.listen()` in the entry file | `export default server` — the CLI mounts and listens |
+> | `server.uiResource()` | removed; bind a view via the tool's `view:` config |
+> | tool `widget: { name, invoking, invoked }` | tool `view: { name, description, csp, … }` — no `invoking`/`invoked` |
+> | `resources/<name>/widget.tsx` | `views/<name>/view.tsx` |
+> | `widgetMetadata` export | `viewConfig` export (only `autoResize` / `displayModes`) |
+> | `useWidget()` | `useToolContext()` + `useViewState()` + `useDisplayMode()` + `useHostContext()` + `useSendFollowUp()` |
+> | `McpUseProvider` | `ThemeProvider` (+ `ViewControls`, `ErrorBoundary`) |
+> | `useWidgetTheme()` | `useViewTheme()` |
+>
+> Throughout these docs "widget" and "view" mean the same thing; v2 calls it a **view**.
 
 ```
 ├─ mcp-use project FOUND → Do NOT scaffold. You are already in a project.
@@ -153,7 +172,7 @@ Load these before diving into tools/resources/widgets sections.
 
 - **[basics.md](references/widgets/basics.md)**
   - When: Creating your first widget or adding UI to an existing tool
-  - Covers: Widget setup, `useWidget()` hook, `isPending` checks, props handling
+  - Covers: Widget setup, `useToolContext()` hook, `isPending` checks, props handling
 
 - **[state.md](references/widgets/state.md)**
   - When: Managing UI state (selections, filters, tabs) within widgets
@@ -165,7 +184,7 @@ Load these before diving into tools/resources/widgets sections.
 
 - **[ui-guidelines.md](references/widgets/ui-guidelines.md)**
   - When: Styling widgets to support themes, responsive layouts, or accessibility
-  - Covers: `useWidgetTheme()`, light/dark mode, `autoSize`, layout patterns, CSS best practices
+  - Covers: `useViewTheme()`, light/dark mode, `viewConfig.autoResize`, layout patterns, CSS best practices
 
 - **[advanced.md](references/widgets/advanced.md)**
   - When: Building complex widgets with async data, error boundaries, or performance optimizations
@@ -277,24 +296,26 @@ What do you need?
 Avoid these anti-patterns found in production MCP servers:
 
 ### Tool Definition
-- ❌ Returning raw objects instead of using response helpers
-  - ✅ Use `text()`, `object()`, `widget()`, `error()` helpers
+- ❌ Using the deprecated `object()`/`text()` helpers on a tool with an `outputSchema`
+  - ✅ Return a raw `CallToolResult`: `{ content: [...], structuredContent: data }`
 - ❌ Skipping Zod schema `.describe()` on every field
   - ✅ Add descriptions to all schema fields for better AI understanding
 - ❌ No input validation or sanitization
   - ✅ Validate inputs with Zod, sanitize user-provided data
-- ❌ Throwing errors instead of returning `error()` helper
-  - ✅ Use `error("message")` for graceful error responses
+- ❌ Throwing exceptions out of a tool callback
+  - ✅ Return `{ isError: true, content: [{ type: "text", text: msg }] }`
 
-### Widget Development
-- ❌ Accessing `props` without checking `isPending`
-  - ✅ Always check `if (isPending) return <Loading/>`
-- ❌ Widget handles server state (filters, selections)
-  - ✅ Widgets manage their own UI state with `useState`
-- ❌ Missing `McpUseProvider` wrapper or `autoSize`
-  - ✅ Wrap root component: `<McpUseProvider autoSize>`
+### View (Widget) Development
+- ❌ Reading `view.toolOutput` without narrowing on `view.status` first
+  - ✅ `if (view.status === "pending") return <Loading/>` — and handle `"error"` too
+- ❌ Passing a props type to the hook: `useToolContext<Props>()`
+  - ✅ Pass the *tool name*: `useToolContext<"search-products">()`
+- ❌ View handles server state (filters, selections)
+  - ✅ Views own their UI state with `useState` / `useViewState`
+- ❌ Missing `ThemeProvider` wrapper
+  - ✅ Wrap root component: `<ThemeProvider>` (auto-resize is on by default via `viewConfig`)
 - ❌ Inline styles without theme awareness
-  - ✅ Use `useWidgetTheme()` for light/dark mode support
+  - ✅ Use `useViewTheme()` for light/dark mode support
 
 ### Security & Production
 - ❌ Hardcoded API keys or secrets in code
@@ -325,38 +346,60 @@ Tool calls are expensive. Avoid lazy-loading:
 ### 3. Widgets Own Their State
 UI state lives in the widget, not in separate tools:
 - ❌ `select-item` tool, `set-filter` tool
-- ✅ Widget manages with `useState` or `setState`
+- ✅ View manages with `useState`, or `useViewState` for model-visible state
 
-### 4. `exposeAsTool` Defaults to `false`
-Widgets are registered as resources only by default. Use a custom tool (recommended) or set `exposeAsTool: true` to expose a widget to the model:
+### 4. A View's Data Comes From Its Bound Tool
+There is no `props:` schema on the view module any more. A view renders the
+`structuredContent` of the tool it is bound to, typed by that tool's
+`outputSchema`. Wiring it up correctly is three steps, all required:
 
 ```typescript
-// ✅ ALL 4 STEPS REQUIRED for proper type inference:
+// ── index.ts ────────────────────────────────────────────────
+// Step 1: EXPORT the tool ref. `mcp-env.d.ts` registers this module, and the
+// typed React hooks derive tool names and types from the exported refs. Forget
+// the `export` and the view's hooks fall back to untyped.
+export const searchProducts = server.tool(
+  {
+    name: "search-products",
+    inputSchema: z.object({ query: z.string().describe("Search text") }),
 
-// Step 1: Define schema separately
-const propsSchema = z.object({
-  title: z.string(),
-  items: z.array(z.string())
-});
+    // Step 2: outputSchema IS the view's prop contract.
+    outputSchema: z.object({
+      query: z.string(),
+      results: z.array(z.object({ id: z.string(), title: z.string() })),
+    }),
 
-// Step 2: Reference schema variable in metadata
-export const widgetMetadata: WidgetMetadata = {
-  description: "...",
-  props: propsSchema,  // ← NOT inline z.object()
-  exposeAsTool: false
-};
+    // Binds views/product-list/view.tsx. Requires outputSchema.
+    view: { name: "product-list" },
+  },
+  async ({ query }) => {
+    const data = { query, results: await search(query) };
+    return {
+      content: [{ type: "text", text: `Found ${data.results.length}` }],
+      structuredContent: data,   // ← this is what the view receives
+    };
+  }
+);
 
-// Step 3: Infer Props type from schema variable
-type Props = z.infer<typeof propsSchema>;
+// ── views/product-list/view.tsx ─────────────────────────────
+// Step 3: name the TOOL in the generic — not a props type.
+export default function ProductList() {
+  const view = useToolContext<"search-products">();
 
-// Step 4: Use typed Props with useWidget
-export default function MyWidget() {
-  const { props, isPending } = useWidget<Props>();  // ← Add <Props>
-  // ...
+  if (view.status === "error") return <Error message={view.error.message} />;
+  if (view.status === "pending") return <Skeleton query={view.toolInput?.query} />;
+
+  const { query, results } = view.toolOutput;   // fully typed
+  return <Results query={query} items={results} />;
 }
 ```
 
-⚠️ **Common mistake:** Only doing steps 1-2 but skipping 3-4 (loses type safety)
+⚠️ **Common mistakes:**
+- Passing a props type (`useToolContext<Props>()`) instead of the tool name — the
+  generic is `keyof RegisteredTools`, a string literal.
+- Not exporting the `ToolRef` from the server entry, which silently drops typing.
+- Reading `view.toolOutput` without narrowing on `status` first — it is `undefined`
+  until the result lands.
 
 ### 5. Validate at Boundaries Only
 - Trust internal code and framework guarantees
@@ -375,7 +418,7 @@ When in doubt, add a widget. Visual UI improves:
 
 ### Minimal Server
 ```typescript
-import { MCPServer, text } from "mcp-use/server";
+import { MCPServer, text } from "mcp-use";
 import { z } from "zod";
 
 const server = new MCPServer({
@@ -393,31 +436,51 @@ server.tool(
   async ({ name }) => text("Hello " + name + "!"),
 );
 
-server.listen();
+export default server;
 ```
 
 ---
 
 ## Response Helpers
 
-| Helper | Use When | Example |
-|--------|----------|---------|
-| `text()` | Simple string response | `text("Success!")` |
-| `object()` | Structured data | `object({ status: "ok" })` |
-| `markdown()` | Formatted text | `markdown("# Title\nContent")` |
-| `widget()` | Visual UI | `widget({ props: {...}, output: text(...) })` |
-| `mix()` | Multiple contents | `mix(text("Hi"), image(url))` |
-| `error()` | Error responses | `error("Failed to fetch data")` |
-| `resource()` | Embed resource refs | `resource("docs://guide", "text/markdown")` |
+⚠️ **All response helpers are deprecated in v2, and they do not typecheck on a tool
+that declares an `outputSchema`.** They still exist and still run — but `object()`
+returns `structuredContent` as *optional*, while a schema-backed tool's callback
+requires it, so TypeScript rejects it. Same for `error()`, whose `isError` is not
+the literal `true` the return type needs.
+
+| Tool | What to return |
+|---|---|
+| has `outputSchema` | a raw `CallToolResult` — helpers will not compile |
+| no `outputSchema` | helpers still work (`return text(msg)`) |
+
+```typescript
+// ✅ v2 — raw CallToolResult, works with or without an outputSchema
+return {
+  content: [{ type: "text", text: JSON.stringify(data) }],
+  structuredContent: data,
+};
+
+// ✅ v2 — failure
+return { isError: true, content: [{ type: "text", text: "Not found" }] };
+
+// ⚠️ deprecated; breaks as soon as the tool declares an outputSchema
+return object(data);
+return error("Not found");
+```
+
+Still exported from `mcp-use` for now: `text`, `object`, `error`, `widget`, `mix`,
+`markdown`, `html`, `image`, `audio`, `binary`, `resource`, `array`, `css`,
+`javascript`, `xml`. There is no `content()` helper — there never was.
 
 **Server methods:**
-- `server.tool()` - Define executable tool
+- `server.tool()` - Define executable tool (bind a view with `view: { name }`)
 - `server.resource()` - Define static/dynamic resource
 - `server.resourceTemplate()` - Define parameterized resource
 - `server.prompt()` - Define prompt template
 - `server.proxy()` - Compose/Proxy multiple MCP servers
-- `server.uiResource()` - Define widget resource
-- `server.listen()` - Start server
+- `export default server` - Entry contract; the CLI mounts and listens
+- `server.listen(port)` - Only when self-hosting outside the CLI
 - `server.use('mcp:tools/call', fn)` - MCP middleware (tools, resources, prompts, list ops)
 - `server.use('mcp:*', fn)` - Catch-all MCP middleware
 - `server.use(fn)` - HTTP middleware (Hono)

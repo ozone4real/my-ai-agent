@@ -3,7 +3,7 @@ import type { Request, Response } from "express"
 import { Conversation, ConversationModel } from "../models/conversation"
 import { createConversationSchema, createMessageSchema } from "./schemas/conversations"
 import { Author, Message, MessageDocument, MessageModel } from "../models/message"
-import { Agent, AgentMessage, AgentStreamPayload } from "../agent";
+import { Agent, AgentMessage, AgentStreamEventPayload, AgentStreamPayload } from "../agents";
 import SSEStream from "../services/sse_stream"
 import { ClientSession, Document, Types } from "mongoose"
 
@@ -101,11 +101,39 @@ router.get("/:conversation_id", async (req: Request, res: Response) => {
   })
 })
 
+router.delete("/:conversation_id", async (req: Request, res: Response) => {
+  const conversationId = String(req.params.conversation_id)
+  if (!Types.ObjectId.isValid(conversationId)) {
+    res.status(404).json({ error: "Conversation not found" })
+    return
+  }
+
+  const conversation = await ConversationModel.findById(conversationId)
+  if (!conversation) {
+    res.status(404).json({ error: "Conversation not found" })
+    return
+  }
+
+  // Messages belong to the conversation — the `messages` virtual is the only
+  // way to reach them, so leaving them behind just leaks unreachable rows.
+  const { deletedCount } = await MessageModel.deleteMany({ conversation: conversation._id })
+  await conversation.deleteOne()
+
+  // Tasks created from this conversation are left alone: `sourceConversation`
+  // is optional provenance, and a scheduled task shouldn't stop existing
+  // because the chat that prompted it was tidied away.
+  res.json({
+    id: String(conversation._id),
+    deleted: true,
+    deletedMessages: deletedCount ?? 0,
+  })
+})
+
 router.post("/", async (req: Request, res: Response) => {
   const params = createConversationSchema.parse(req.body)
   const conversation = await createConversation(params.message)
 
-  const agent = new Agent()
+  const agent = new Agent({ conversationId: String(conversation._id) })
   if(!SSEStream.wantsStream(req)) {
     const reply = await agent.run(params.message)
     await createMessage(reply, conversation, null, "assistant")
@@ -120,10 +148,11 @@ router.post("/", async (req: Request, res: Response) => {
   // generator and the first `this.agent` access throws.
   // SSEStream spreads `input` as the generator's arguments, so it must be the
   // argument list — a bare string would spread into one char per argument.
-  await sse.stream(res, [params.message], agent.stream.bind(agent), async (data: AgentStreamPayload | undefined) => {
-    // Only the terminal payload carries the reply text; "working" payloads are steps.
+  await sse.stream(res, [params.message], agent.streamEvents.bind(agent), async (data: AgentStreamEventPayload | undefined) => {
+    agent.agent.close()
+     // Only the terminal payload carries the reply text; "working" payloads are steps.
     if (data?.phase !== "done") return
-    await createMessage(String(data.value), conversation, null, "assistant")
+    await createMessage(String(data.content), conversation, null, "assistant")
   }, { conversationId: String(conversation._id) })
 })
 
@@ -158,7 +187,7 @@ router.post("/:conversation_id/messages", async(req: Request, res: Response) => 
 
   await createMessage(params.message, conversation, null)
 
-  const agent = new Agent()
+  const agent = new Agent({ conversationId: String(conversation._id) })
   if (!SSEStream.wantsStream(req)) {
     const reply = await agent.run(params.message, history)
     await createMessage(reply, conversation, null, "assistant")
@@ -168,11 +197,17 @@ router.post("/:conversation_id/messages", async(req: Request, res: Response) => 
 
   const sse = new SSEStream(req)
 
-  await sse.stream(res, [params.message, history], agent.stream.bind(agent), async (data: AgentStreamPayload | undefined) => {
-    // Only the terminal payload carries the reply text; "working" payloads are steps.
+  // await sse.stream(res, [params.message, history], agent.stream.bind(agent), async (data: AgentStreamPayload | undefined) => {
+  //   agent.agent.close()
+  //    // Only the terminal payload carries the reply text; "working" payloads are steps.
+  //   if (data?.phase !== "done") return
+  //   await createMessage(String(data.value), conversation, null, "assistant")
+  // })
+  await sse.stream(res, [params.message, history], agent.streamEvents.bind(agent), async (data: AgentStreamEventPayload | undefined) => {
+    agent.agent.close()
+     // Only the terminal payload carries the reply text; "working" payloads are steps.
     if (data?.phase !== "done") return
-    console.log(agent.agent.getConversationHistory())
-    await createMessage(String(data.value), conversation, null, "assistant")
+    await createMessage(String(data.content), conversation, null, "assistant")
   })
 })
 

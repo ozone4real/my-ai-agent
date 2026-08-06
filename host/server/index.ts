@@ -13,7 +13,7 @@ import express, {
   type Response,
   type NextFunction,
 } from "express";
-import { Agent } from "./agent";
+import { Agent } from "./agents";
 import { connectDB } from "./db";
 import router from "./routes"
 import SseStream from "./services/sse_stream";
@@ -41,55 +41,51 @@ app.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true, stub: true });
 });
 
+// Mounted under /api so the UI's own routes (/conversations/:id, /tasks/:id)
+// can be real browser URLs. Without this the dev proxy forwards those paths to
+// the API and a refresh renders JSON instead of the app.
+app.use("/api", router)
+// Kept for anything already calling the bare paths (curl, the MCP smoke tests).
 app.use(router)
 
-// app.post("/chat", async (req: Request, res: Response) => {
-//   const prompt = typeof req.body?.prompt === "string" ? req.body.prompt : "";
-//   // Stream if the client asked for SSE; otherwise return plain JSON.
-//   const wantsStream = (req.headers.accept ?? "").includes("text/event-stream");
-//   if (!wantsStream) {
-//     const reply = await agent.run(prompt);
-//     res.json({ result: reply });
-//     return;
-//   }
-
-//   res.set({
-//     "content-type": "text/event-stream",
-//     "cache-control": "no-cache",
-//     connection: "keep-alive",
-//   });
-//   res.flushHeaders();
-
-//   const send = (event: string, data: unknown) =>
-//     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-
-//   // Stop streaming if the client disconnects (e.g. the Stop button).
-//   // NOTE: listen on `res`, not `req`. `req`'s "close" fires as soon as
-//   // express.json() finishes consuming the (fully-buffered) request body, so it is
-//   // NOT a disconnect signal. `res`'s "close" fires only when the socket actually
-//   // goes away; `writableFinished` guards against our own res.end() triggering it.
-//   let aborted = false;
-//   res.on("close", () => {
-//     if (!res.writableFinished) aborted = true;
-//   });
-
-//   try {
-//     const streamCallback = (output: string) => send("token", { text: output })
-//     await agent.stream(prompt, streamCallback)
-
-//     if (!aborted) send("done", {});
-//   } catch {
-//     if (!aborted) send("error", { message: "Stub server error" });
-//   } finally {
-//     res.end();
-//   }
-// });
-
-// Mongo isn't on the /chat path yet, so a failed connection warns instead of
-// aborting boot. Once a route actually reads or writes users, move this above
-// app.listen() and let a rejection exit the process.
 connectDB()
   .then(() => console.log("MongoDB connected"))
+
+/**
+ * Bring up this project's own MCP server alongside the host.
+ *
+ * The agent lists it in servers_definition, and unlike the stdio servers (which
+ * are spawned per session) an HTTP one has to already be listening — if it
+ * isn't, `createAllSessions` throws on the first connect and **every** agent
+ * turn fails, not just the task tools. Starting it here means that can't happen
+ * by forgetting to run a second process.
+ *
+ * EADDRINUSE is fine and expected: it means `npm run app-mcp` already owns the
+ * port, and that instance satisfies the agent just as well.
+ */
+async function startAppMcpServer() {
+  const url = new URL(process.env.APP_MCP_URL ?? "http://localhost:3001/mcp");
+  const port = Number(url.port || 80);
+  try {
+    const { default: appMcp } = await import("../../mcp_servers/index.js");
+    await appMcp.listen(port);
+    console.log(`Application MCP Server on ${url.origin}/mcp`);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "EADDRINUSE") {
+      console.log(`Application MCP Server already running on ${url.origin}/mcp`);
+      return;
+    }
+    console.warn(
+      `Application MCP Server failed to start — the agent's task tools will be ` +
+        `unavailable and agent runs will fail until it is up: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+    );
+  }
+}
+
+void startAppMcpServer();
 
 app.listen(PORT, () => {
   console.log(`Stub /chat server on http://localhost:${PORT}`);

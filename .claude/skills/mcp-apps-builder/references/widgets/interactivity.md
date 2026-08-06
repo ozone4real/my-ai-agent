@@ -1,9 +1,14 @@
 # Widget Interactivity
 
-Widgets interact with the outside world using hooks from `mcp-use/react`. `useCallTool()` provides tool calling with built-in state management. `sendFollowUpMessage` from `useWidget()` triggers LLM conversation turns.
+> **v2 note:** `sendFollowUpMessage(string)` is now its own hook and takes an object:
+> `const sendFollowUp = useSendFollowUp();` then `sendFollowUp({ prompt: "..." })`.
+> It is no longer returned from the view-context hook.
+
+
+Widgets interact with the outside world using hooks from `mcp-use/react`. `useCallTool()` provides tool calling with built-in state management. `sendFollowUpMessage` from `useToolContext()` triggers LLM conversation turns.
 
 **Use `useCallTool()` for:** Creating items, updating data, triggering actions, submitting forms
-**Use `sendFollowUpMessage` for:** Asking the AI to analyze, compare, summarize, or respond based on widget context
+**Use `useSendFollowUp()` for:** Asking the AI to analyze, compare, summarize, or respond based on widget context
 
 ---
 
@@ -46,10 +51,10 @@ const result = await callToolAsync({ param: "value" });
 ## Simple Button Action
 
 ```tsx
-import { McpUseProvider, useWidget, useCallTool, type WidgetMetadata } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useCallTool, type ViewConfig } from "mcp-use/react";
 import { z } from "zod";
 
-export const widgetMetadata: WidgetMetadata = {
+export const viewConfig: ViewConfig = {
   description: "Todo list with actions",
   props: z.object({
     todos: z.array(z.object({
@@ -58,19 +63,20 @@ export const widgetMetadata: WidgetMetadata = {
       completed: z.boolean()
     }))
   }),
-  exposeAsTool: false
 };
 
 export default function TodoList() {
-  const { props, isPending: isLoading } = useWidget();
+  const view = useToolContext();
+  const isLoading = view.status === "pending";
+  const props = view.toolOutput;
   const { callTool, isPending } = useCallTool("toggle-todo");
 
   if (isLoading) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         {props.todos.map(todo => (
           <div key={todo.id} style={{ display: "flex", gap: 8, padding: 8 }}>
@@ -86,7 +92,7 @@ export default function TodoList() {
           </div>
         ))}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -117,15 +123,17 @@ server.tool(
 
 ```tsx
 import { useState } from "react";
-import { McpUseProvider, useWidget, useCallTool } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useCallTool } from "mcp-use/react";
 
 export default function CreateItemWidget() {
-  const { props, isPending: isLoading } = useWidget();
+  const view = useToolContext();
+  const isLoading = view.status === "pending";
+  const props = view.toolOutput;
   const { callTool, isPending } = useCallTool("create-todo");
   const [title, setTitle] = useState("");
 
   if (isLoading) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -139,7 +147,7 @@ export default function CreateItemWidget() {
   };
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ padding: 20 }}>
         <form onSubmit={handleSubmit}>
           <input
@@ -161,7 +169,7 @@ export default function CreateItemWidget() {
           ))}
         </div>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -198,7 +206,7 @@ const handleDelete = (id: string) => {
 };
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <div>
       {props.todos.map(todo => (
         <div key={todo.id} style={{ display: "flex", justifyContent: "space-between", padding: 8 }}>
@@ -207,7 +215,7 @@ return (
         </div>
       ))}
     </div>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 
@@ -219,7 +227,7 @@ Update UI immediately, then call tool:
 
 ```tsx
 import { useState, useEffect } from "react";
-import { McpUseProvider, useWidget, useCallTool } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useCallTool } from "mcp-use/react";
 
 interface Todo {
   id: string;
@@ -228,7 +236,9 @@ interface Todo {
 }
 
 export default function OptimisticWidget() {
-  const { props, isPending: isLoading } = useWidget<{ todos: Todo[] }>();
+  const view = useToolContext<"{ todos: Todo[] }">();
+  const isLoading = view.status === "pending";
+  const props = view.toolOutput;
   const { callToolAsync } = useCallTool("toggle-todo");
   const [todos, setTodos] = useState<Todo[]>([]);
 
@@ -254,11 +264,11 @@ export default function OptimisticWidget() {
   };
 
   if (isLoading) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         {todos.map(todo => (
           <div key={todo.id}>
@@ -271,7 +281,7 @@ export default function OptimisticWidget() {
           </div>
         ))}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -289,7 +299,7 @@ const { callTool: archiveItem } = useCallTool("archive-item");
 const { callTool: deleteItem } = useCallTool("delete-item");
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <div>
       {props.items.map(item => (
         <div key={item.id} style={{ padding: 12, border: "1px solid #ddd", marginBottom: 8 }}>
@@ -307,7 +317,7 @@ return (
         </div>
       ))}
     </div>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 
@@ -317,10 +327,12 @@ return (
 
 ```tsx
 import { useState } from "react";
-import { McpUseProvider, useWidget, useCallTool } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useCallTool } from "mcp-use/react";
 
 export default function EditableList() {
-  const { props, isPending: isLoading } = useWidget();
+  const view = useToolContext();
+  const isLoading = view.status === "pending";
+  const props = view.toolOutput;
   const { callToolAsync, isPending: isSaving } = useCallTool("update-item");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
@@ -345,11 +357,11 @@ export default function EditableList() {
   };
 
   if (isLoading) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         {props.items.map(item => (
           <div key={item.id} style={{ padding: 8, display: "flex", gap: 8 }}>
@@ -373,7 +385,7 @@ export default function EditableList() {
           </div>
         ))}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -386,10 +398,12 @@ Select multiple items and act on them:
 
 ```tsx
 import { useState } from "react";
-import { McpUseProvider, useWidget, useCallTool } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useCallTool } from "mcp-use/react";
 
 export default function BatchActions() {
-  const { props, isPending: isLoading } = useWidget();
+  const view = useToolContext();
+  const isLoading = view.status === "pending";
+  const props = view.toolOutput;
   const { callTool: archiveItems, isPending: isArchiving } = useCallTool("archive-items");
   const { callTool: deleteItems, isPending: isDeleting } = useCallTool("delete-items");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -421,11 +435,11 @@ export default function BatchActions() {
   };
 
   if (isLoading) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         {selectedIds.size > 0 && (
           <div style={{ padding: 12, backgroundColor: "#f5f5f5", marginBottom: 16 }}>
@@ -450,7 +464,7 @@ export default function BatchActions() {
           </div>
         ))}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -481,7 +495,7 @@ Use `isError` and `error` from the hook instead of manual error state:
 const { callTool, isError, error, isPending } = useCallTool("some-tool");
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <div>
       {isError && (
         <div style={{ padding: 12, backgroundColor: "#ffebee", color: "#c62828", marginBottom: 16 }}>
@@ -493,7 +507,7 @@ return (
         Perform Action
       </button>
     </div>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 
@@ -519,7 +533,7 @@ const handleAction = async (id: string) => {
 };
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <div>
       {props.items.map(item => (
         <div key={item.id}>
@@ -533,7 +547,7 @@ return (
         </div>
       ))}
     </div>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 
@@ -578,7 +592,7 @@ const handleConfirmDelete = async () => {
 };
 
 return (
-  <McpUseProvider autoSize>
+  <ThemeProvider>
     <div>
       {props.items.map(item => (
         <div key={item.id}>
@@ -602,28 +616,31 @@ return (
         </div>
       )}
     </div>
-  </McpUseProvider>
+  </ThemeProvider>
 );
 ```
 
 ---
 
-## Triggering LLM Responses: `sendFollowUpMessage`
+## Triggering LLM Responses: `useSendFollowUp()`
 
-`sendFollowUpMessage` from `useWidget()` sends a message to the conversation and triggers a new LLM turn — as if the user typed it. Use this to let widget interactions drive the conversation.
+`useSendFollowUp()` returns a `({ prompt }) => Promise<void>` that sends a message to the conversation and triggers a new LLM turn — as if the user typed it. Use this to let widget interactions drive the conversation.
 
 ```tsx
-import { McpUseProvider, useWidget } from "mcp-use/react";
+import { ThemeProvider, useToolContext } from "mcp-use/react";
 
 export default function AnalysisWidget() {
-  const { props, isPending, sendFollowUpMessage } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
+  const sendFollowUp = useSendFollowUp();
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ padding: 20 }}>
         <h2>Results for "{props.query}"</h2>
         {props.items.map(item => (
@@ -633,40 +650,44 @@ export default function AnalysisWidget() {
         ))}
 
         <button
-          onClick={() => sendFollowUpMessage(
+          onClick={() => sendFollowUp({ prompt: 
             `Compare the top 3 results for "${props.query}" and recommend the best one.`
-          )}
+           })}
           style={{ marginTop: 16, padding: "8px 16px" }}
         >
           Ask AI to Compare
         </button>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
 
 ### Combining with `useCallTool`
 
-A widget can use both — `useCallTool` for data mutations and `sendFollowUpMessage` for triggering LLM reasoning:
+A widget can use both — `useCallTool` for data mutations and `useSendFollowUp` for triggering LLM reasoning:
 
 ```tsx
 import { useState } from "react";
-import { McpUseProvider, useWidget, useCallTool } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useCallTool } from "mcp-use/react";
 
 export default function TodoWidget() {
-  const { props, isPending, state, setState, sendFollowUpMessage } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
+  const [state, setState] = useViewState({});
+  const sendFollowUp = useSendFollowUp();
   const { callTool: toggleTodo } = useCallTool("toggle-todo");
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   const tasks = state?.tasks || props.tasks || [];
   const remaining = tasks.filter(t => !t.completed).length;
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ padding: 20 }}>
         {tasks.map(t => (
           <div key={t.id} style={{ display: "flex", gap: 8, padding: 8 }}>
@@ -680,15 +701,15 @@ export default function TodoWidget() {
         ))}
 
         <button
-          onClick={() => sendFollowUpMessage(
+          onClick={() => sendFollowUp({ prompt: 
             `I have ${remaining} tasks left. Help me prioritize them.`
-          )}
+           })}
           style={{ marginTop: 16, padding: "8px 16px" }}
         >
           Ask AI to Prioritize
         </button>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -699,7 +720,7 @@ export default function TodoWidget() {
 
 ```tsx
 import { useState } from "react";
-import { McpUseProvider, useWidget, useCallTool, type WidgetMetadata } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useCallTool, type ViewConfig } from "mcp-use/react";
 import { z } from "zod";
 
 const propsSchema = z.object({
@@ -712,14 +733,12 @@ const propsSchema = z.object({
 
 type Props = z.infer<typeof propsSchema>;
 
-export const widgetMetadata: WidgetMetadata = {
-  description: "Interactive todo list",
-  props: propsSchema,
-  exposeAsTool: false
-};
+export const viewConfig = {} satisfies ViewConfig;
 
 export default function InteractiveTodoList() {
-  const { props, isPending: isLoading } = useWidget<Props>();
+  const view = useToolContext<"list-todos">();
+  const isLoading = view.status === "pending";
+  const props = view.toolOutput;
   const { callTool: createTodo, isPending: isCreating } = useCallTool("create-todo");
   const { callTool: toggleTodo } = useCallTool("toggle-todo");
   const { callTool: deleteTodo } = useCallTool("delete-todo");
@@ -727,7 +746,7 @@ export default function InteractiveTodoList() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   if (isLoading) {
-    return <McpUseProvider autoSize><div>Loading todos...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading todos...</div></ThemeProvider>;
   }
 
   const handleCreate = (e: React.FormEvent) => {
@@ -753,7 +772,7 @@ export default function InteractiveTodoList() {
   };
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ padding: 20 }}>
         <h2>Todos ({props.todos.length})</h2>
 
@@ -807,7 +826,7 @@ export default function InteractiveTodoList() {
           <p style={{ color: "#999", textAlign: "center" }}>No todos yet</p>
         )}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -823,7 +842,7 @@ export default function InteractiveTodoList() {
 5. **Use `isError`/`error` from the hook** - Instead of manual error state for single-tool widgets
 6. **Optimistic updates** - Update local state before the call, revert on error
 7. **Confirm destructive actions** - Use confirm() for deletes
-8. **Use `sendFollowUpMessage` for LLM reasoning** - When you want the AI to analyze, compare, or respond based on widget context rather than mutating data
+8. **Use `useSendFollowUp()` for LLM reasoning** - When you want the AI to analyze, compare, or respond based on widget context rather than mutating data
 
 ---
 

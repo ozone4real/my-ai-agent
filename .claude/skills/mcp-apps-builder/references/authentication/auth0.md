@@ -36,7 +36,7 @@ Auth0's built-in DCR feature is currently in **Early Access**. MCP clients regis
 ### Quick Start
 
 ```typescript
-import { MCPServer, oauthAuth0Provider, object } from "mcp-use/server";
+import { MCPServer, oauthAuth0Provider, object } from "mcp-use";
 
 const server = new MCPServer({
   name: "my-server",
@@ -54,7 +54,7 @@ server.tool(
     })
 );
 
-server.listen();
+export default server;
 ```
 
 With a `.env` file:
@@ -106,7 +106,7 @@ Use a standard Auth0 **Regular Web Application** — no Early Access required. Y
 ### Quick Start
 
 ```typescript
-import { MCPServer, oauthProxy, jwksVerifier, object } from "mcp-use/server";
+import { MCPServer, oauthProxy, jwksVerifier, object } from "mcp-use";
 
 const domain = process.env.AUTH0_DOMAIN!;
 const audience = process.env.AUTH0_AUDIENCE ?? "";
@@ -140,7 +140,7 @@ server.tool(
     })
 );
 
-server.listen();
+export default server;
 ```
 
 With a `.env` file:

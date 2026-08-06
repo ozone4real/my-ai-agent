@@ -58,6 +58,108 @@ body {
   min-height: 0;
 }
 
+/* Chats / Tasks switch */
+.pane-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 12px 0;
+}
+
+.pane-tabs button {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.pane-tabs button:hover {
+  color: var(--text);
+}
+
+.pane-tabs button.active {
+  background: var(--panel-2);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* A row that carries a hover-revealed delete affordance. */
+.row-wrap {
+  display: flex;
+  align-items: stretch;
+  border-radius: 9px;
+}
+
+.row-wrap:hover,
+.row-wrap.active {
+  background: var(--panel-2);
+}
+
+.row-wrap .conversation:hover:not(:disabled) {
+  background: transparent;
+}
+
+/* `.conversation` is `width: 100%` for the standalone (task) list. Inside a
+   row-wrap it has a sibling button, so it has to yield that width instead —
+   otherwise it claims the whole row and pushes the delete button out past the
+   edge, where the sidebar clips it. `min-width: 0` keeps the preview
+   ellipsising rather than forcing the row wider. */
+.row-wrap .conversation {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.row-delete {
+  flex: none;
+  width: 26px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 9px;
+  opacity: 0;
+}
+
+/* Once armed the button must stay put — fading it back out on mouse-leave
+   would hide the very control the warning is telling you to click. */
+.row-wrap:hover .row-delete,
+.row-wrap.armed .row-delete,
+.row-delete:focus-visible {
+  opacity: 1;
+}
+
+.row-wrap.armed {
+  background: var(--panel-2);
+  box-shadow: inset 0 0 0 1px var(--error);
+  border-radius: 9px;
+}
+
+.row-delete.armed {
+  color: var(--error);
+  font-weight: 700;
+}
+
+.row-armed-note {
+  color: var(--error);
+}
+
+.row-delete:hover:not(:disabled) {
+  color: var(--error);
+}
+
+.row-delete:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .sidebar-head {
   display: flex;
   align-items: center;
@@ -280,6 +382,56 @@ body {
   animation: shimmer 2s linear infinite;
 }
 
+/* Collapsible thinking panel — quieter than the answer it sits above. */
+.thinking {
+  margin-bottom: 8px;
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+}
+
+.thinking-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.thinking-head:hover {
+  color: var(--text);
+}
+
+.thinking-caret {
+  font-size: 9px;
+  transition: transform 0.15s ease;
+}
+
+.thinking.open .thinking-caret {
+  transform: rotate(90deg);
+}
+
+.thinking-body {
+  margin-top: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-caret {
+    transition: none;
+  }
+}
+
 .steps-note {
   margin-top: 6px;
   font-size: 12px;
@@ -375,4 +527,233 @@ body {
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--border);
+}
+
+/* ---- Task detail ---- */
+.task-detail {
+  padding: 4px 4px 24px;
+}
+
+.task-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.task-title {
+  margin: 0 0 6px;
+  font-size: 18px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.task-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.task-facts code,
+.conversation-meta code,
+.task-meta-grid code {
+  background: var(--panel-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.btn.danger {
+  flex: none;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 6px 14px;
+  font-size: 13px;
+}
+
+.btn.danger:hover:not(:disabled) {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+/* Armed state: unmistakable, because the next click is destructive. */
+.btn.danger.confirming {
+  background: var(--error);
+  border-color: var(--error);
+  color: #fff;
+}
+
+.btn.danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.task-warning {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--error);
+}
+
+.task-meta-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  margin: 18px 0 4px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.task-meta-grid .label {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 3px;
+}
+
+.runs h3 {
+  font-size: 14px;
+  margin: 22px 0 10px;
+}
+
+.runs .muted {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.empty.small {
+  margin: 0;
+  text-align: left;
+  font-size: 13px;
+}
+
+.run-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.run {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 12px;
+  background: var(--panel);
+}
+
+.run-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.pill {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: capitalize;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.pill.success {
+  color: #4ade80;
+  border-color: #4ade8055;
+  background: #4ade8014;
+}
+
+.pill.failed {
+  color: var(--error);
+  border-color: #ff6b6b55;
+  background: #ff6b6b14;
+}
+
+.pill.in_progress {
+  color: var(--accent);
+  border-color: #6d8bff55;
+  background: #6d8bff14;
+}
+
+.run-when {
+  color: var(--muted);
+}
+
+.run-duration {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.run-toggle {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.run-transcript {
+  margin: 10px 0 0;
+  padding: 10px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  max-height: 260px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.convo-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.convo-link:hover {
+  text-decoration: underline;
+}
+
+/* A task's prompt is its identity, but it's an instruction and can run long.
+   Clamp it so the schedule, metadata and run history stay visible. */
+.task-title {
+  font-size: 15px;
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.task-title.open {
+  display: block;
+  max-height: 40vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.prompt-toggle {
+  margin: 0 0 6px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
 }

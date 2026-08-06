@@ -12,7 +12,7 @@ Catch React errors and display fallback UI:
 
 ```tsx
 import { Component, ReactNode } from "react";
-import { McpUseProvider, useWidget } from "mcp-use/react";
+import { ThemeProvider, useToolContext } from "mcp-use/react";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -56,18 +56,20 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
 // Usage
 export default function SafeWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <ErrorBoundary>
         <WidgetContent props={props} />
       </ErrorBoundary>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -80,10 +82,12 @@ Memoize expensive computations:
 
 ```tsx
 import { useMemo } from "react";
-import { McpUseProvider, useWidget } from "mcp-use/react";
+import { ThemeProvider, useToolContext } from "mcp-use/react";
 
 export default function OptimizedWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
 
   // Expensive computation - only runs when props.items changes
   // Guard against isPending where props.items is undefined
@@ -109,11 +113,11 @@ export default function OptimizedWidget() {
   }, [props.items]);
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ padding: 20 }}>
         <p>Total: {sortedAndFiltered.total}</p>
         <p>Average: {sortedAndFiltered.avgScore.toFixed(2)}</p>
@@ -122,7 +126,7 @@ export default function OptimizedWidget() {
           <div key={item.id}>{item.name}</div>
         ))}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -135,10 +139,12 @@ Prevent unnecessary re-renders:
 
 ```tsx
 import { useCallback, useState } from "react";
-import { McpUseProvider, useWidget, useCallTool } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useCallTool } from "mcp-use/react";
 
 export default function CallbackWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
   const { callToolAsync } = useCallTool("process-item");
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
@@ -153,11 +159,11 @@ export default function CallbackWidget() {
   }, [callToolAsync]);
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         {props.items.map(item => (
           <ItemRow
@@ -168,7 +174,7 @@ export default function CallbackWidget() {
           />
         ))}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 
@@ -191,10 +197,12 @@ Fetch additional data from widget:
 
 ```tsx
 import { useState, useEffect } from "react";
-import { McpUseProvider, useWidget } from "mcp-use/react";
+import { ThemeProvider, useToolContext } from "mcp-use/react";
 
 export default function AsyncWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
   const [details, setDetails] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -210,11 +218,11 @@ export default function AsyncWidget() {
   }, [isPending, props.itemId]);
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ padding: 20 }}>
         <h2>{props.title}</h2>
 
@@ -227,7 +235,7 @@ export default function AsyncWidget() {
           </div>
         )}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -255,7 +263,7 @@ Use useReducer for complex state:
 
 ```tsx
 import { useReducer } from "react";
-import { McpUseProvider, useWidget } from "mcp-use/react";
+import { ThemeProvider, useToolContext } from "mcp-use/react";
 
 type State = {
   selectedIds: Set<string>;
@@ -311,7 +319,9 @@ function reducer(state: State, action: Action): State {
 }
 
 export default function ComplexWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
   const [state, dispatch] = useReducer(reducer, {
     selectedIds: new Set(),
     filters: { category: "all", search: "" },
@@ -320,11 +330,11 @@ export default function ComplexWidget() {
   });
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ padding: 20 }}>
         <input
           type="text"
@@ -339,7 +349,7 @@ export default function ComplexWidget() {
 
         {/* ... render items with state */}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -352,10 +362,12 @@ Render only visible items:
 
 ```tsx
 import { useState, useRef, useEffect } from "react";
-import { McpUseProvider, useWidget } from "mcp-use/react";
+import { ThemeProvider, useToolContext } from "mcp-use/react";
 
 export default function VirtualizedList() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
   const [scrollTop, setScrollTop] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -364,7 +376,7 @@ export default function VirtualizedList() {
   const overscan = 3;
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   const visibleStart = Math.max(0, Math.floor(scrollTop / itemHeight) - overscan);
@@ -376,7 +388,7 @@ export default function VirtualizedList() {
   const visibleItems = props.items.slice(visibleStart, visibleEnd);
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div
         ref={containerRef}
         onScroll={e => setScrollTop(e.currentTarget.scrollTop)}
@@ -404,7 +416,7 @@ export default function VirtualizedList() {
           ))}
         </div>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -419,7 +431,7 @@ Delay search to avoid excessive calls:
 
 ```tsx
 import { useState, useEffect } from "react";
-import { McpUseProvider, useWidget, useCallTool } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useCallTool } from "mcp-use/react";
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
@@ -438,7 +450,9 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 export default function DebouncedSearchWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
   const { callToolAsync } = useCallTool("search");
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<{ id: string; name: string }[]>([]);
@@ -460,11 +474,11 @@ export default function DebouncedSearchWidget() {
   }, [debouncedSearch, callToolAsync]);
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ padding: 20 }}>
         <input
           type="text"
@@ -482,7 +496,7 @@ export default function DebouncedSearchWidget() {
           ))}
         </div>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -495,7 +509,7 @@ Load more items as user scrolls:
 
 ```tsx
 import { useState, useRef, useEffect } from "react";
-import { McpUseProvider, useWidget, useCallTool } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useCallTool } from "mcp-use/react";
 
 interface Item {
   id: string;
@@ -503,7 +517,9 @@ interface Item {
 }
 
 export default function InfiniteScrollWidget() {
-  const { props, isPending } = useWidget<{ items: Item[] }>();
+  const view = useToolContext<"{ items: Item[] }">();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
   const { callToolAsync } = useCallTool("load-more");
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
@@ -556,11 +572,11 @@ export default function InfiniteScrollWidget() {
   };
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div style={{ padding: 20 }}>
         {items.map(item => (
           <div key={item.id} style={{ padding: 12, borderBottom: "1px solid #eee" }}>
@@ -573,7 +589,7 @@ export default function InfiniteScrollWidget() {
           {!hasMore && <p>No more items</p>}
         </div>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -586,7 +602,7 @@ Persist widget state across sessions:
 
 ```tsx
 import { useState, useEffect } from "react";
-import { McpUseProvider, useWidget } from "mcp-use/react";
+import { ThemeProvider, useToolContext } from "mcp-use/react";
 
 function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T) => void] {
   const [storedValue, setStoredValue] = useState<T>(() => {
@@ -612,7 +628,9 @@ function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T) => voi
 }
 
 export default function PersistentWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
   const [favorites, setFavorites] = useLocalStorage<string[]>("favorites", []);
 
   const toggleFavorite = (id: string) => {
@@ -622,11 +640,11 @@ export default function PersistentWidget() {
   };
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         {props.items.map(item => (
           <div key={item.id}>
@@ -637,7 +655,7 @@ export default function PersistentWidget() {
           </div>
         ))}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -650,7 +668,7 @@ Reorder items with drag and drop:
 
 ```tsx
 import { useState, useEffect } from "react";
-import { McpUseProvider, useWidget } from "mcp-use/react";
+import { ThemeProvider, useToolContext } from "mcp-use/react";
 
 interface Item {
   id: string;
@@ -658,7 +676,9 @@ interface Item {
 }
 
 export default function DraggableList() {
-  const { props, isPending } = useWidget<{ items: Item[] }>();
+  const view = useToolContext<"{ items: Item[] }">();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
   const [items, setItems] = useState<Item[]>([]);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
@@ -694,11 +714,11 @@ export default function DraggableList() {
   };
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         {items.map((item, index) => (
           <div
@@ -719,7 +739,7 @@ export default function DraggableList() {
           </div>
         ))}
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -730,10 +750,12 @@ export default function DraggableList() {
 
 ```tsx
 import { useEffect } from "react";
-import { McpUseProvider, useWidget, useCallTool } from "mcp-use/react";
+import { ThemeProvider, useToolContext, useCallTool } from "mcp-use/react";
 
 export default function KeyboardWidget() {
-  const { props, isPending } = useWidget();
+  const view = useToolContext();
+  const isPending = view.status === "pending";
+  const props = view.toolOutput;
   const { callTool: save } = useCallTool("save");
 
   useEffect(() => {
@@ -760,11 +782,11 @@ export default function KeyboardWidget() {
   }, [save]);
 
   if (isPending) {
-    return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+    return <ThemeProvider><div>Loading...</div></ThemeProvider>;
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <div>
         <p>Keyboard shortcuts:</p>
         <ul>
@@ -773,7 +795,7 @@ export default function KeyboardWidget() {
           <li><kbd>↑/↓</kbd> - Navigate</li>
         </ul>
       </div>
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```

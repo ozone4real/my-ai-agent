@@ -29,23 +29,23 @@ const { upload, getDownloadUrl, isSupported } = useFiles();
 Always guard with `isSupported`. Render a fallback for MCP Apps clients:
 
 ```tsx
-import { useFiles, useWidget, McpUseProvider } from "mcp-use/react";
+import { useFiles, useToolContext, ThemeProvider } from "mcp-use/react";
 import { useState } from "react";
 
 export default function FileWidget() {
-  const { isPending } = useWidget();
+  const isPending = useToolContext().status === "pending";
   const { upload, getDownloadUrl, isSupported } = useFiles();
   const [fileId, setFileId] = useState<string | null>(null);
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
 
-  if (isPending) return <McpUseProvider autoSize><div>Loading...</div></McpUseProvider>;
+  if (isPending) return <ThemeProvider><div>Loading...</div></ThemeProvider>;
 
   // Renders in MCP Apps clients (Claude, Goose, etc.)
   if (!isSupported) {
     return (
-      <McpUseProvider autoSize>
+      <ThemeProvider>
         <p>File operations require ChatGPT Apps SDK.</p>
-      </McpUseProvider>
+      </ThemeProvider>
     );
   }
 
@@ -63,11 +63,11 @@ export default function FileWidget() {
   }
 
   return (
-    <McpUseProvider autoSize>
+    <ThemeProvider>
       <input type="file" onChange={handleUpload} />
       {fileId && <button onClick={handleGetLink}>Get download link</button>}
       {downloadUrl && <a href={downloadUrl} target="_blank">Download</a>}
-    </McpUseProvider>
+    </ThemeProvider>
   );
 }
 ```
@@ -97,7 +97,7 @@ When `modelVisible: true` (default), the new `fileId` is appended to `imageIds` 
 Download URLs are **temporary** (~5 minutes). Store the `fileId`, not the URL:
 
 ```tsx
-const { state, setState } = useWidget<{ uploadedFileId: string | null }>();
+const [state, setState] = useViewState<{ uploadedFileId: string | null }>({});
 
 async function handleUpload(file: File) {
   const { fileId } = await upload(file);

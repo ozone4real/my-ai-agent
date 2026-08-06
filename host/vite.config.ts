@@ -12,7 +12,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/conversations": {
+      // Only /api is proxied. Paths like /conversations/:id are UI routes and
+      // must reach index.html, which Vite's SPA fallback handles.
+      "/api": {
         target: AGENT_URL,
         changeOrigin: true,
       },
