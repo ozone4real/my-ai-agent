@@ -757,3 +757,146 @@ body {
   font-size: 12px;
   cursor: pointer;
 }
+
+/* ---- Run transcript ---- */
+.tr-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 460px;
+  overflow-y: auto;
+}
+
+.tr-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* Small caps label so each turn is identifiable without a heavy chrome. */
+.tr-role {
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tr-role.prompt {
+  color: var(--accent);
+}
+
+.tr-role.agent {
+  color: var(--text);
+}
+
+.tr-role.call,
+.tr-role.result {
+  color: #d8a657;
+}
+
+.tr-role.thought {
+  color: var(--muted);
+}
+
+.tr-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tr-collapsible {
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+}
+
+.tr-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.tr-toggle.static {
+  cursor: default;
+}
+
+.tr-toggle:hover .tr-tool-name {
+  text-decoration: underline;
+}
+
+.tr-caret {
+  flex: none;
+  font-size: 8px;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.tr-caret.open {
+  transform: rotate(90deg);
+}
+
+.tr-tool-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+/* The first line of a long tool result, so the fold still says something. */
+.tr-preview {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tr-body {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border-radius: 8px;
+  max-height: 240px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tr-empty {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tr-caret {
+    transition: none;
+  }
+}
+
+/* Keep a tool name on one line and let the preview take the slack, so a long
+   result summary truncates instead of pushing the name into a wrap. */
+.tr-tool-name {
+  white-space: nowrap;
+  flex: none;
+}
+
+.tr-toggle .tr-preview {
+  flex: 1;
+}

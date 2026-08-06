@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
+import { Transcript } from "./Transcript";
 import type { TaskRun, TaskWithRuns } from "./api";
 import { useArmedAction } from "./useArmedAction";
 
@@ -37,7 +38,7 @@ function Run({ run }: { run: TaskRun }) {
           </button>
         )}
       </div>
-      {open && run.transcript && <pre className="run-transcript">{run.transcript}</pre>}
+      {open && run.transcript && <Transcript raw={run.transcript} />}
     </li>
   );
 }
