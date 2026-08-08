@@ -92,11 +92,11 @@ The agent in `host/server/agents/index.ts` gets web search from a **self-hosted
 sent to a paid search API and there is no key to manage — SearXNG runs in Docker
 on your machine and queries upstream engines directly.
 
-In Docker it is just another service and needs no separate command. To run it
-on its own for local (non-Docker) development:
+It is a service in the main compose file, published on `127.0.0.1:8888` so a
+natively-run app can use it too. To run it on its own:
 
 ```bash
-npm run search:up      # start SearXNG on http://localhost:8888
+npm run search:up      # docker compose up -d searxng
 npm run search:down    # stop it
 npm run search:logs    # tail logs
 ```

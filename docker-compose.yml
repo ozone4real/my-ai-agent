@@ -71,11 +71,17 @@ services:
   # Self-hosted metasearch behind the agent's websearch tool.
   searxng:
     image: searxng/searxng:latest
+    restart: unless-stopped
     volumes:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
-      SEARXNG_BASE_URL: http://searxng:8080/
+      SEARXNG_BASE_URL: http://localhost:${SEARXNG_PORT:-8888}/
       SEARXNG_SECRET: ${SEARXNG_SECRET:-local-dev-agent-searxng-secret}
+    ports:
+      # Published so a natively-run app can reach it too: `docker compose up -d
+      # searxng` is all the standalone setup that used to need its own file.
+      # Loopback only — the rate limiter is off and this isn't hardened.
+      - "127.0.0.1:${SEARXNG_PORT:-8888}:8080"
     healthcheck:
       test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:8080/healthz"]
       interval: 10s

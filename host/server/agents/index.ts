@@ -78,70 +78,6 @@ const splitAfterWords = (text: string, count: number): number => {
   return -1
 }
 
-/**
- * LangChain reports tool args as `{ input: ... }`, and for MCP tools the inner
- * value is the raw JSON string. Unwrap both; anything else passes through.
- */
-const readToolArgs = (input: unknown): unknown => {
-  const unwrapped =
-    input && typeof input === "object" && "input" in input
-      ? (input as { input: unknown }).input
-      : input
-
-  if (typeof unwrapped === "string") {
-    try {
-      return JSON.parse(unwrapped)
-    } catch {
-      return unwrapped
-    }
-  }
-  return unwrapped
-}
-
-/** Reasoning text from a streamed chunk, whatever provider produced it. */
-const readReasoning = (chunk: any): string => {
-  if (!chunk) return ""
-
-  // 1. v1 standard blocks. `contentBlocks` dispatches on
-  //    response_metadata.model_provider, so Anthropic thinking, Gemini thought
-  //    parts, DeepSeek/Grok reasoning_content and OpenAI summaries all land
-  //    here as `{ type: "reasoning" }`.
-  try {
-    const blocks = chunk.contentBlocks
-    if (Array.isArray(blocks)) {
-      const reasoning = blocks
-        .filter((block: any) => block?.type === "reasoning")
-        .map((block: any) => block?.reasoning ?? "")
-        .join("")
-      if (reasoning) return reasoning
-    }
-  } catch {
-    // Not a real AIMessageChunk; the raw-shape fallbacks below still work.
-  }
-
-  // 2. Raw fields, for chunks with no model_provider to dispatch on.
-  const kwargs = chunk.additional_kwargs ?? {}
-  if (typeof kwargs.reasoning_content === "string") return kwargs.reasoning_content
-  if (typeof kwargs.reasoning === "string") return kwargs.reasoning
-  if (kwargs.reasoning && typeof kwargs.reasoning === "object") {
-    const summary = kwargs.reasoning.summary
-    if (Array.isArray(summary)) {
-      return summary.map((part: any) => part?.text ?? "").join("")
-    }
-    if (typeof kwargs.reasoning.text === "string") return kwargs.reasoning.text
-  }
-
-  // 3. Anthropic-shaped arrays, where thinking deltas live in the content list.
-  if (Array.isArray(chunk.content)) {
-    return chunk.content
-      .filter((block: any) => block?.type === "thinking" || block?.type === "reasoning")
-      .map((block: any) => block?.thinking ?? block?.reasoning ?? "")
-      .join("")
-  }
-
-  return ""
-}
-
 export interface AgentOptions {
   model?: ModelType
   /**
@@ -173,36 +109,6 @@ const OPERATING_INSTRUCTIONS = (() => {
     )
   }
 })()
-
-/** Operating rules first, then run-scoped facts, then the user's own. */
-const buildContextInstructions = ({
-  conversationId,
-  preferredName,
-  userInstructions,
-}: Pick<AgentOptions, "conversationId" | "preferredName" | "userInstructions">): string => {
-  // First: the operating rules are the baseline everything else sits on.
-  const parts: string[] = [OPERATING_INSTRUCTIONS]
-
-  if (preferredName) {
-    parts.push(`The user prefers to be called ${preferredName}.`)
-  }
-
-  if (conversationId) {
-    parts.push(
-      [
-        `You are answering inside conversation ${conversationId}.`,
-        `When a tool takes a conversation id — for example the sourceConversation`,
-        `argument of schedule-task — pass exactly that value. Do not invent one, and`,
-        `do not mention the id to the user unless they ask for it.`,
-      ].join(" ")
-    )
-  }
-
-  // Last, so the user's own instructions win any disagreement with the above.
-  if (userInstructions) parts.push(userInstructions)
-
-  return parts.join("\n\n")
-}
 
 export class Agent {
   public agent: MCPAgent
@@ -258,7 +164,7 @@ export class Agent {
       maxSteps: 100,
       // The only way in: a SystemMessage in `externalHistory` is silently
       // discarded, since that array is filtered to human/AI/tool messages.
-      additionalInstructions: buildContextInstructions({ conversationId, preferredName, userInstructions }),
+      additionalInstructions: this.buildContextInstructions({ conversationId, preferredName, userInstructions }),
     })
   }
 
@@ -344,7 +250,7 @@ export class Agent {
           const chunk = event.data?.chunk
           if (!chunk) break
 
-          const reasoning = readReasoning(chunk)
+          const reasoning = this.readReasoning(chunk)
           if (reasoning) {
             reasoningBuffer += reasoning
             yield* drainReasoning(false)
@@ -374,7 +280,7 @@ export class Agent {
           yield* drainReasoning(true)
           yield {
             phase: "working",
-            content: { tool: event.name, args: readToolArgs(event.data?.input) },
+            content: { tool: event.name, args: this.readToolArgs(event.data?.input) },
           }
           break
       }
@@ -415,5 +321,99 @@ export class Agent {
     return convert(serialize(this.conversationHistory)).filter(
       (message) => message.role !== "system"
     )
+  }
+
+  /** Operating rules first, then run-scoped facts, then the user's own. */
+  private buildContextInstructions ({
+    conversationId,
+    preferredName,
+    userInstructions,
+  }: Pick<AgentOptions, "conversationId" | "preferredName" | "userInstructions">): string {
+  // First: the operating rules are the baseline everything else sits on.
+    const parts: string[] = [OPERATING_INSTRUCTIONS]
+
+    if (preferredName) {
+      parts.push(`The user prefers to be called ${preferredName}.`)
+    }
+
+    if (conversationId) {
+      parts.push(
+        [
+          `You are answering inside conversation ${conversationId}.`,
+          `When a tool takes a conversation id — for example the sourceConversation`,
+          `argument of schedule-task — pass exactly that value. Do not invent one, and`,
+          `do not mention the id to the user unless they ask for it.`,
+        ].join(" ")
+      )
+    }
+
+    // Last, so the user's own instructions win any disagreement with the above.
+    if (userInstructions) parts.push(userInstructions)
+
+    return parts.join("\n\n")
+  }
+
+  /** Reasoning text from a streamed chunk, whatever provider produced it. */
+  private readReasoning (chunk: any): string  {
+    if (!chunk) return ""
+
+    // 1. v1 standard blocks. `contentBlocks` dispatches on
+    //    response_metadata.model_provider, so Anthropic thinking, Gemini thought
+    //    parts, DeepSeek/Grok reasoning_content and OpenAI summaries all land
+    //    here as `{ type: "reasoning" }`.
+    try {
+      const blocks = chunk.contentBlocks
+      if (Array.isArray(blocks)) {
+        const reasoning = blocks
+          .filter((block: any) => block?.type === "reasoning")
+          .map((block: any) => block?.reasoning ?? "")
+          .join("")
+        if (reasoning) return reasoning
+      }
+    } catch {
+      // Not a real AIMessageChunk; the raw-shape fallbacks below still work.
+    }
+
+    // 2. Raw fields, for chunks with no model_provider to dispatch on.
+    const kwargs = chunk.additional_kwargs ?? {}
+    if (typeof kwargs.reasoning_content === "string") return kwargs.reasoning_content
+    if (typeof kwargs.reasoning === "string") return kwargs.reasoning
+    if (kwargs.reasoning && typeof kwargs.reasoning === "object") {
+      const summary = kwargs.reasoning.summary
+      if (Array.isArray(summary)) {
+        return summary.map((part: any) => part?.text ?? "").join("")
+      }
+      if (typeof kwargs.reasoning.text === "string") return kwargs.reasoning.text
+    }
+
+    // 3. Anthropic-shaped arrays, where thinking deltas live in the content list.
+    if (Array.isArray(chunk.content)) {
+      return chunk.content
+        .filter((block: any) => block?.type === "thinking" || block?.type === "reasoning")
+        .map((block: any) => block?.thinking ?? block?.reasoning ?? "")
+        .join("")
+    }
+
+    return ""
+  }
+
+  /**
+   * LangChain reports tool args as `{ input: ... }`, and for MCP tools the inner
+   * value is the raw JSON string. Unwrap both; anything else passes through.
+  */
+  private readToolArgs (input: unknown): unknown {
+    const unwrapped =
+      input && typeof input === "object" && "input" in input
+        ? (input as { input: unknown }).input
+        : input
+
+    if (typeof unwrapped === "string") {
+      try {
+        return JSON.parse(unwrapped)
+      } catch {
+        return unwrapped
+      }
+    }
+    return unwrapped
   }
 }

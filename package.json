@@ -32,9 +32,9 @@
     "web:build": "vite build host",
     "web:preview": "vite preview host",
     "workers": "tsx watch --env-file-if-exists=.env host/server/workers/index.ts",
-    "search:up": "docker compose -f searxng/docker-compose.yml up -d",
-    "search:down": "docker compose -f searxng/docker-compose.yml down",
-    "search:logs": "docker compose -f searxng/docker-compose.yml logs -f",
+    "search:up": "docker compose up -d searxng",
+    "search:down": "docker compose stop searxng",
+    "search:logs": "docker compose logs -f searxng",
     "start": "mcp-use start",
     "deploy": "mcp-use deploy",
     "postinstall": "mcp-use typecheck || exit 0"
