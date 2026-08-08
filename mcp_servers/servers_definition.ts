@@ -1,16 +1,34 @@
+// The MCP servers the agent connects to. Hosts and paths are env-driven so the
+// same definition works natively and in a container.
+
+/**
+ * Where the filesystem server may read and write.
+ *
+ * No default on purpose: a fallback would silently expose a whole home
+ * directory wherever this wasn't set. Throwing here also beats the failure it
+ * prevents — a bad path kills the filesystem server, and one dead connector
+ * aborts every agent run with an error that never names this variable.
+ */
+const FILESYSTEM_ROOT = process.env.AGENT_FILESYSTEM_ROOT;
+if (!FILESYSTEM_ROOT) {
+  throw new Error(
+    "AGENT_FILESYSTEM_ROOT is not set. Point it at the directory the agent may " +
+      "read and write, e.g. AGENT_FILESYSTEM_ROOT=/Users/you/agent-workspace"
+  );
+}
+
+/** A Chrome already listening for DevTools connections. */
+const CHROME_URL = process.env.CHROME_URL ?? "http://127.0.0.1:9222";
+
 export default {
-  // This project's own MCP server (mcp_servers/index.ts) — scheduled tasks and
-  // their run history. Started with `npm run app-mcp`.
-  //
-  // A `url` rather than `command`/`args`: mcp-use v2's MCPServer is Hono/Fetch
-  // based and has no stdio transport, so it can't be spawned as a child the way
-  // the servers below are. It has to already be listening.
+  // This project's own server (tasks + run history), started by `npm run app-mcp`.
+  // A `url` because mcp-use v2 has no stdio transport — it must already be up.
   app: {
     url: process.env.APP_MCP_URL ?? "http://localhost:8000/mcp",
   },
   filesystem: {
     command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "/Users/ezenwaogbonna/Desktop"],
+    args: ["-y", "@modelcontextprotocol/server-filesystem", FILESYSTEM_ROOT],
   },
   shellCommandExecutor: {
     command: "npx",
@@ -18,7 +36,12 @@ export default {
   },
   chromedevtools: {
     command: "npx",
-    args: ["-y", "chrome-devtools-mcp@latest", "--browser-url=http://127.0.0.1:9222", "--ignoreDefaultChromeArg=--enable-automation"]
+    args: [
+      "-y",
+      "chrome-devtools-mcp@latest",
+      `--browser-url=${CHROME_URL}`,
+      "--ignoreDefaultChromeArg=--enable-automation",
+    ],
   },
   brevo: {
     command: "npx",
@@ -32,35 +55,27 @@ export default {
       BREVO_MCP_TOKEN: process.env.BREVO_MCP_TOKEN ?? ""
     }
   },
-  // Web search against the local SearXNG in searxng/ (`npm run search:up`).
-  // Fully self-hosted and key-free: SearXNG is AGPL-3.0, mcp-searxng is MIT.
-  // If the container isn't running, this server starts but every search fails
-  // — the agent's other tools are unaffected.
+  // Local SearXNG (`npm run search:up`). If it's down, searches fail but the
+  // agent's other tools are unaffected.
   websearch: {
     command: "npx",
     args: ["-y", "mcp-searxng"],
-    // These are operator caps, not defaults the model can talk its way past —
-    // mcp-searxng clamps whatever the model asks for down to them.
+    // Operator caps, not defaults — mcp-searxng clamps the model's requests.
     env: {
-        SEARXNG_URL: process.env.SEARXNG_URL ?? "http://localhost:8888",
-        // `text` is title + url + snippet per hit; the JSON format also carries
-        // engine names and per-engine scores the model has no use for.
-        SEARXNG_DEFAULT_RESPONSE_FORMAT: "text",
-        // Smaller tool schemas. These are re-sent on every model call, so the
-        // saving is per-turn, not per-search.
-        SEARXNG_LITE_TOOLS: "true",
-        // A metasearch page is ~37 hits across engines. The answer is almost
-        // always in the first few, and the tail is mostly near-duplicates.
-        SEARXNG_MAX_RESULTS: "5",
-        SEARXNG_MAX_RESULT_CHARS: "4000",
-        // The one that actually dominates the bill: without a cap, one
-        // web_url_read of a long article can outweigh every search in the turn.
-        URL_READ_MAX_CHARS: "8000",
-        // Stop before downloading something huge just to extract 8k of text.
-        URL_READ_MAX_CONTENT_LENGTH_BYTES: "1000000",
-        // Agents re-issue near-identical queries while reasoning; serve those
-        // from memory instead of re-querying every engine.
-        SEARCH_CACHE_TTL_MS: "300000",
-      },
+      SEARXNG_URL: process.env.SEARXNG_URL ?? "http://localhost:8888",
+      // title + url + snippet; JSON adds engine metadata the model can't use.
+      SEARXNG_DEFAULT_RESPONSE_FORMAT: "text",
+      // Smaller tool schemas — re-sent every model call, so this saves per-turn.
+      SEARXNG_LITE_TOOLS: "true",
+      // ~37 hits across engines; the tail is near-duplicates.
+      SEARXNG_MAX_RESULTS: "5",
+      SEARXNG_MAX_RESULT_CHARS: "4000",
+      // Dominates the bill: one uncapped page read outweighs every search.
+      URL_READ_MAX_CHARS: "8000",
+      // Don't download 50MB to extract 8k of text.
+      URL_READ_MAX_CONTENT_LENGTH_BYTES: "1000000",
+      // Agents re-issue near-identical queries while reasoning.
+      SEARCH_CACHE_TTL_MS: "300000",
     },
+  },
 }

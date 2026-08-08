@@ -6,14 +6,9 @@ export enum JobQueueName {
   DEFAULT = "default"
 }
 /**
- * Queues shared across every instance.
- *
- * Each `new Queue()` opens its own Redis connection and nothing here ever
- * closes them, so memoising per *instance* leaked one connection per
- * `new AgenticJob()` — and the Task save hook constructs one on every write.
- * Keyed by queue name plus attempts, because `attempts` is baked into the
- * queue's `defaultJobOptions` and two job classes on one queue may want
- * different retry counts.
+ * Queues shared across instances — memoising per instance leaked a Redis
+ * connection per `new AgenticJob()`, and the Task save hook makes one per write.
+ * Keyed on attempts too, since that's baked into `defaultJobOptions`.
  */
 const queues = new Map<string, Queue>()
 
@@ -42,8 +37,7 @@ export default abstract class ApplicationJob {
         connection: {
           host: process.env.REDIS_HOST,
           password: process.env.REDIS_PASSWORD,
-          // Bounds how long a single connect attempt waits. It does NOT make
-          // commands fail fast on its own — see withRedisTimeout below.
+          // Bounds one connect attempt; does NOT make commands fail fast.
           connectTimeout: 5000,
         },
       })
@@ -53,17 +47,14 @@ export default abstract class ApplicationJob {
   }
 
   /**
-   * Reject if a queue operation outlives `ms`.
+   * Reject if a queue op outlives `ms`.
    *
-   * Necessary because BullMQ won't let a producer fail fast: it forces
-   * `maxRetriesPerRequest = null` on the connection whenever `blocking` is set
-   * (the default) and awaits `waitUntilReady()` before issuing a command. With
-   * Redis unreachable that means commands wait forever, so a `save()` that
-   * schedules in a post hook hangs the request instead of erroring — and you
-   * can't compensate for a failure you never observe.
+   * BullMQ forces `maxRetriesPerRequest = null` and awaits `waitUntilReady()`,
+   * so with Redis down commands wait forever — a `save()` that schedules in a
+   * post hook hangs rather than erroring, and you can't compensate for a
+   * failure you never see.
    *
-   * The bounded command may still land later if Redis comes back. That leaves a
-   * scheduler with no task behind it, which `reconcileTaskSchedulers()` removes.
+   * A bounded command may still land later; reconcileTaskSchedulers() cleans up.
    */
   static async withRedisTimeout<T>(work: Promise<T>, ms = 5000): Promise<T> {
     let timer: NodeJS.Timeout | undefined

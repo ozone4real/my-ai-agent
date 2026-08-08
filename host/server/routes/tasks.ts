@@ -12,10 +12,7 @@ import {
 
 const router = Router()
 
-/**
- * An id that isn't a valid ObjectId makes findById throw a CastError, which
- * would surface as a 500. A bad id is a 404.
- */
+/** A non-ObjectId would make findById throw a CastError, i.e. a 500. */
 const findTask = async (rawId: unknown, res: Response) => {
   const id = String(rawId)
   if (!Types.ObjectId.isValid(id)) {
@@ -30,8 +27,7 @@ const findTask = async (rawId: unknown, res: Response) => {
   return task
 }
 
-// Newest first. Runs are deliberately omitted — a thread of runs per task would
-// make this response grow without bound; fetch one task to see its history.
+// Newest first. Runs omitted so the response can't grow without bound.
 router.get("/", async (_req: Request, res: Response) => {
   const tasks = await TaskModel.find().sort({ createdAt: -1 })
   res.json({ tasks: tasks.map(serializeTask) })
@@ -45,14 +41,12 @@ router.get("/:task_id", async (req: Request, res: Response) => {
   res.json({ ...serializeTask(task), runs: runs.map(serializeTaskRun) })
 })
 
-// PATCH rather than PUT: every field is optional, and an absent one means
-// "leave it alone" rather than "clear it".
+// PATCH: an absent field means "leave it alone", not "clear it".
 router.patch("/:task_id", async (req: Request, res: Response) => {
   const task = await findTask(req.params.task_id, res)
   if (!task) return
 
-  // safeParse rather than parse: Express 5 forwards a thrown ZodError to its
-  // default handler, which answers 500. A bad body is a 400.
+  // safeParse: Express 5 turns a thrown ZodError into a 500.
   const parsed = taskUpdateShape.safeParse(req.body)
   if (!parsed.success) {
     res.status(400).json({
@@ -65,7 +59,6 @@ router.patch("/:task_id", async (req: Request, res: Response) => {
   try {
     await task.save()
   } catch (err) {
-    // Schema-level validation (a required field emptied, say) lands here.
     res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
     return
   }
@@ -77,8 +70,7 @@ router.delete("/:task_id", async (req: Request, res: Response) => {
   const task = await findTask(req.params.task_id, res)
   if (!task) return
 
-  // Runs belong to the task and are unreachable once it's gone, so they go with
-  // it rather than lingering as orphan rows.
+  // Runs are unreachable once the task is gone.
   const { deletedCount } = await TaskRunModel.deleteMany({ task: task._id })
   await task.deleteOne()
 

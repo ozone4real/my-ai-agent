@@ -1,0 +1,52 @@
+# Development overlay.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Adds the Vite dev server and bind-mounts the source into the Node services, so
+# edits are picked up without a rebuild. The express service still serves
+# host/dist if it was built, but in dev you use Vite on :5173 instead.
+
+services:
+  server:
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./workspace:/workspace
+      # Source is mounted; node_modules stays the image's (built for linux).
+      - ./host:/app/host
+      - ./mcp_servers:/app/mcp_servers
+    # tsx watch restarts on edit.
+    command: ["npx", "tsx", "watch", "host/server/index.ts"]
+
+  worker:
+    environment:
+      NODE_ENV: development
+    volumes:
+      - ./workspace:/workspace
+      - ./host:/app/host
+      - ./mcp_servers:/app/mcp_servers
+    command: ["npx", "tsx", "watch", "host/server/workers/index.ts"]
+
+  app-mcp:
+    volumes:
+      - ./workspace:/workspace
+      - ./host:/app/host
+      - ./mcp_servers:/app/mcp_servers
+    command: ["npx", "tsx", "watch", "mcp_servers/serve.ts"]
+
+  # Vite, proxying /api to the express service. `--host` is required or it binds
+  # to loopback inside the container and nothing reaches it.
+  web:
+    build:
+      context: .
+    restart: unless-stopped
+    environment:
+      # host/vite.config.ts reads this for the proxy target.
+      AGENT_URL: http://server:8080
+    command: ["npx", "vite", "host", "--host", "0.0.0.0", "--port", "5173"]
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./host:/app/host
+    depends_on:
+      - server

@@ -21,7 +21,11 @@ const server = new MCPServer({
   name: "Application MCP Server",
   title: "app-mcp-server",
   description: "MCP server for general application operations, such as sending notifications, task scheduling, etc.",
-  version: "1.0"
+  version: "1.0",
+  // Host-header validation only allows localhost-class names by default. In
+  // Docker the other services reach this one as http://app-mcp:8000, so that
+  // hostname has to be allowed or every request is rejected as DNS rebinding.
+  allowedHosts: process.env.MCP_ALLOWED_HOSTS?.split(",").map((h) => h.trim()).filter(Boolean),
 })
 
 export const scheduleTask = server.tool(

@@ -13,6 +13,7 @@ import {
   type TaskWithRuns,
 } from "./api";
 import { describeStep } from "./steps";
+import { SettingsPane } from "./SettingsPane";
 import { TaskDetail } from "./TaskDetail";
 import { useArmedAction } from "./useArmedAction";
 
@@ -180,7 +181,7 @@ function ConversationRow({
 }
 
 /** Which collection the sidebar is browsing. */
-type Pane = "chats" | "tasks";
+type Pane = "chats" | "tasks" | "settings";
 
 interface Route {
   pane: Pane;
@@ -189,17 +190,12 @@ interface Route {
 }
 
 /**
- * The URL is the single source of truth for what's selected, so refresh, back,
- * forward and deep links all work without a second copy of the state to keep in
- * sync.
- *
- *   /                     new chat
- *   /conversations/:id    a thread
- *   /tasks                task list, nothing selected
- *   /tasks/:id            a task
+ * The URL is the source of truth for what's selected, so refresh, back/forward
+ * and deep links work without a second copy of the state.
  */
 function parseRoute(pathname: string): Route {
   const [, head, id] = pathname.split("/");
+  if (head === "settings") return { pane: "settings", conversationId: null, taskId: null };
   if (head === "tasks") return { pane: "tasks", conversationId: null, taskId: id || null };
   if (head === "conversations" && id) {
     return { pane: "chats", conversationId: id, taskId: null };
@@ -221,14 +217,11 @@ export function App() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   /**
-   * Which thread's messages are currently in `messages`. The load effect skips
-   * when this already matches the URL, which is what stops a mid-stream
-   * navigation (the server assigning an id to a brand-new thread) from
-   * re-fetching and wiping the reply as it streams in.
+   * Which thread is in `messages`. The load effect skips when it matches the
+   * URL, so a mid-stream navigation doesn't refetch and wipe the live reply.
    */
   const loadedIdRef = useRef<string | null>(null);
-  // Mirror the current selection for callbacks that would otherwise capture a
-  // stale value from the render they were created in.
+  // Mirrors for callbacks that would otherwise capture a stale selection.
   const activeIdRef = useRef<string | null>(activeId);
   const taskIdRef = useRef<string | null>(taskId);
   activeIdRef.current = activeId;
@@ -266,8 +259,7 @@ export function App() {
     void refreshConversations();
   }, [refreshConversations]);
 
-  // Only fetch tasks once the pane is actually opened — no reason to hit the
-  // endpoint for someone who only ever chats.
+  // Only when the pane is opened.
   useEffect(() => {
     if (pane === "tasks") void refreshTasks();
   }, [pane, refreshTasks]);
@@ -327,8 +319,7 @@ export function App() {
       try {
         await deleteConversation(conversationId);
         setConversations((current) => current.filter((c) => c.id !== conversationId));
-        // Dropping the open thread would otherwise leave its messages on screen
-        // with no record behind them.
+
         if (conversationId === activeIdRef.current) navigate("/");
         setListError(null);
       } catch (err) {
@@ -348,12 +339,10 @@ export function App() {
     []
   );
 
-  // Driven by the URL rather than by the click, so a refresh or a pasted link
-  // loads the same thread a click would.
+  // URL-driven, so a refresh or pasted link loads what a click would.
   useEffect(() => {
     if (activeId === null) {
-      // Only clear when we're genuinely on a fresh chat, not mid-stream on a
-      // thread the server just named for us.
+      // Only on a genuinely fresh chat, not mid-stream on a new thread.
       if (loadedIdRef.current !== null && !busy) {
         loadedIdRef.current = null;
         setMessages([]);
@@ -368,10 +357,8 @@ export function App() {
       try {
         const detail = await getConversation(activeId);
         if (cancelled) return;
-        // Claimed only once the messages are actually in state. Claiming it up
-        // front looks tidier but breaks under StrictMode's double-invoke: the
-        // first pass would set it and then be cancelled, and the second would
-        // see it already matching and skip the fetch, leaving an empty thread.
+        // Claimed only once the messages land: claiming up front breaks under
+        // StrictMode, whose second pass then skips the fetch entirely.
         loadedIdRef.current = activeId;
         setMessages(
           detail.messages.map((m) => ({
@@ -393,8 +380,7 @@ export function App() {
       }
     })();
 
-    // A fast click through several threads would otherwise let an earlier,
-    // slower response land last and win.
+    // Otherwise a slower earlier response could land last and win.
     return () => {
       cancelled = true;
     };
@@ -453,8 +439,7 @@ export function App() {
           // Only fires when the server created the thread on this turn; from
           // here on the composer continues it instead of starting another.
           onConversation: (conversationId) => {
-            // Claim it before navigating so the load effect treats this thread
-            // as already loaded and leaves the streaming reply alone.
+            // Claim before navigating so the load effect leaves the stream alone.
             loadedIdRef.current = conversationId;
             navigate(`/conversations/${conversationId}`, { replace: true });
           },
@@ -504,9 +489,8 @@ export function App() {
         }));
       }
     } finally {
-      // Clear the status even on abort/error, so nothing is left spinning.
-      // The thinking panel is deliberately left as-is here: a turn that ended
-      // without a reply is exactly when the partial reasoning is worth reading.
+      // Clear the status even on abort/error. The thinking panel stays open —
+      // a turn that ended without a reply is when it's worth reading.
       patchMessage(assistantId, (m) => ({
         ...m,
         status: undefined,
@@ -552,11 +536,21 @@ export function App() {
           >
             Tasks
           </button>
+          <button
+            role="tab"
+            aria-selected={pane === "settings"}
+            className={pane === "settings" ? "active" : ""}
+            onClick={() => navigate("/settings")}
+          >
+            Settings
+          </button>
         </div>
 
         <div className="sidebar-head">
-          <h2>{pane === "chats" ? "Conversations" : "Scheduled"}</h2>
-          {pane === "chats" ? (
+          <h2>
+            {pane === "chats" ? "Conversations" : pane === "tasks" ? "Scheduled" : "Preferences"}
+          </h2>
+          {pane === "settings" ? null : pane === "chats" ? (
             <button
               className="btn new"
               onClick={startNewChat}
@@ -574,7 +568,12 @@ export function App() {
 
         {listError && <div className="error sidebar-error">{listError}</div>}
 
-        {pane === "chats" ? (
+        {pane === "settings" ? (
+          <div className="sidebar-empty">
+            How the assistant addresses you, what it should always keep in mind,
+            and which model it uses.
+          </div>
+        ) : pane === "chats" ? (
           <div className="conversation-list">
             {conversations.length === 0 && !listError && (
               <div className="sidebar-empty">No conversations yet.</div>
@@ -623,7 +622,9 @@ export function App() {
         <header className="header">
           <h1>MCP Agent</h1>
           <span className="subtitle">
-            {pane === "tasks"
+            {pane === "settings"
+              ? "Preferences"
+              : pane === "tasks"
               ? activeTask
                 ? `Task ${activeTask.id.slice(-6)}`
                 : "Scheduled tasks"
@@ -633,7 +634,11 @@ export function App() {
           </span>
         </header>
 
-        {pane === "tasks" ? (
+        {pane === "settings" ? (
+          <div className="messages">
+            <SettingsPane />
+          </div>
+        ) : pane === "tasks" ? (
           <div className="messages">
             {loadingTask && <div className="empty">Loading task…</div>}
             {!loadingTask && !activeTask && (

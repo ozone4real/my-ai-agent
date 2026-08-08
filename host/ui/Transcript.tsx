@@ -1,10 +1,6 @@
 import { useMemo, useState } from "react";
 
-/**
- * A stored run transcript, in the DeepSeek/OpenAI chat shape the agent
- * serialises. System messages are stripped before storage, so only these
- * three roles turn up.
- */
+/** A stored transcript. System messages are stripped, so only three roles. */
 type TranscriptMessage =
   | { role: "user"; content: string }
   | {
@@ -23,7 +19,7 @@ function parseTranscript(raw: string): TranscriptMessage[] | null {
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return null;
-    // A transcript of unknown shape is better shown raw than half-rendered.
+    // Unknown shape is better shown raw than half-rendered.
     return parsed.every((m) => m && typeof m === "object" && "role" in m)
       ? (parsed as TranscriptMessage[])
       : null;
@@ -42,11 +38,7 @@ function formatArgs(args?: string): string {
   }
 }
 
-/**
- * Tool results are stored as the raw MCP `CallToolResult`, so the useful text
- * is buried in a `content` envelope. Pull it out; fall back to pretty JSON, and
- * to the raw string if it isn't JSON at all.
- */
+/** Tool results are raw `CallToolResult`; dig the text out of the envelope. */
 function readToolContent(raw: string): string {
   try {
     const parsed = JSON.parse(raw);
@@ -73,7 +65,7 @@ function firstLine(text: string, max = 90): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line;
 }
 
-/** Anything long enough to bury the rest of the transcript gets folded away. */
+/** Folds away anything long enough to bury the rest of the transcript. */
 function Collapsible({
   summary,
   body,
@@ -177,7 +169,7 @@ function Entry({
 export function Transcript({ raw }: { raw: string }) {
   const messages = useMemo(() => parseTranscript(raw), [raw]);
 
-  // Tool results reference their call by id but don't always carry the name.
+  // Tool results reference their call by id but may not carry the name.
   const toolNames = useMemo(() => {
     const names = new Map<string, string>();
     for (const message of messages ?? []) {
@@ -189,7 +181,7 @@ export function Transcript({ raw }: { raw: string }) {
     return names;
   }, [messages]);
 
-  // Older runs, or anything written by something else, still get shown.
+  // Older runs still get shown, just unformatted.
   if (!messages) return <pre className="run-transcript">{raw}</pre>;
   if (messages.length === 0) {
     return <div className="tr-empty">This run recorded no messages.</div>;

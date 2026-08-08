@@ -38,9 +38,7 @@ const serializeMessage = (message: MessageDocument) => ({
 router.get("/", async (_req: Request, res: Response) => {
   const conversations = await ConversationModel.find().sort({ createdAt: -1 })
 
-  // One grouped query rather than populating each conversation in turn, so the
-  // list costs two round trips regardless of how many threads exist — and never
-  // pulls whole message bodies just to count them.
+  // One grouped query, so the list is two round trips regardless of size.
   const summaries = await MessageModel.aggregate<{
     _id: Types.ObjectId
     messageCount: number
@@ -77,8 +75,7 @@ router.get("/", async (_req: Request, res: Response) => {
 })
 
 router.get("/:conversation_id", async (req: Request, res: Response) => {
-  // An id that isn't a valid ObjectId makes findById throw a CastError, which
-  // would surface as a 500 — a bad id is a 404.
+  // A non-ObjectId would make findById throw a CastError, i.e. a 500.
   const conversationId = String(req.params.conversation_id)
   if (!Types.ObjectId.isValid(conversationId)) {
     res.status(404).json({ error: "Conversation not found" })
@@ -114,14 +111,11 @@ router.delete("/:conversation_id", async (req: Request, res: Response) => {
     return
   }
 
-  // Messages belong to the conversation — the `messages` virtual is the only
-  // way to reach them, so leaving them behind just leaks unreachable rows.
+  // The `messages` virtual is the only way to reach them.
   const { deletedCount } = await MessageModel.deleteMany({ conversation: conversation._id })
   await conversation.deleteOne()
 
-  // Tasks created from this conversation are left alone: `sourceConversation`
-  // is optional provenance, and a scheduled task shouldn't stop existing
-  // because the chat that prompted it was tidied away.
+  // Tasks are left alone; `sourceConversation` is optional provenance.
   res.json({
     id: String(conversation._id),
     deleted: true,
@@ -133,7 +127,7 @@ router.post("/", async (req: Request, res: Response) => {
   const params = createConversationSchema.parse(req.body)
   const conversation = await createConversation(params.message)
 
-  const agent = new Agent({ conversationId: String(conversation._id) })
+  const agent = await Agent.withSettings({ conversationId: String(conversation._id) })
   if(!SSEStream.wantsStream(req)) {
     const reply = await agent.run(params.message)
     await createMessage(reply, conversation, null, "assistant")
@@ -144,10 +138,8 @@ router.post("/", async (req: Request, res: Response) => {
   }
 
   const sse = new SSEStream(req)
-  // `agent.stream` must be bound: passed bare, `this` is undefined inside the
-  // generator and the first `this.agent` access throws.
-  // SSEStream spreads `input` as the generator's arguments, so it must be the
-  // argument list — a bare string would spread into one char per argument.
+  // Bound, or `this` is undefined inside the generator. `input` is spread as
+  // the generator's arguments, so it must be an argument list.
   await sse.stream(res, [params.message], agent.streamEvents.bind(agent), async (data: AgentStreamEventPayload | undefined) => {
     agent.agent.close()
      // Only the terminal payload carries the reply text; "working" payloads are steps.
@@ -165,8 +157,7 @@ router.post("/:conversation_id/messages", async(req: Request, res: Response) => 
     return
   }
 
-  // The generic types the `messages` virtual onto the result — it lives on the
-  // schema as a virtual, so it isn't part of the inferred Conversation type.
+  // The generic types the `messages` virtual, which isn't in the inferred type.
   const conversation = await ConversationModel
     .findById(conversationId)
     .populate<{ messages: MessageDocument[] }>("messages")
@@ -176,9 +167,8 @@ router.post("/:conversation_id/messages", async(req: Request, res: Response) => 
     return
   }
 
-  // Snapshot the thread as it stood before this turn. Must be read before the
-  // save below, otherwise the incoming message lands in the history *and* is
-  // passed as the prompt.
+  // Must be read before the save below, or the incoming message lands in the
+  // history *and* is passed as the prompt.
   const history: AgentMessage[] = conversation.messages.map((message: Message) => ({
     // InferSchemaType widens the enum to `string`; the schema restricts it to AUTHORS.
     role: message.author as Author,
@@ -187,7 +177,7 @@ router.post("/:conversation_id/messages", async(req: Request, res: Response) => 
 
   await createMessage(params.message, conversation, null)
 
-  const agent = new Agent({ conversationId: String(conversation._id) })
+  const agent = await Agent.withSettings({ conversationId: String(conversation._id) })
   if (!SSEStream.wantsStream(req)) {
     const reply = await agent.run(params.message, history)
     await createMessage(reply, conversation, null, "assistant")

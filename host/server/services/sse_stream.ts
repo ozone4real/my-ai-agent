@@ -16,16 +16,13 @@ export default class SSEStream {
     });
     res.flushHeaders();
 
-    // Emitted before the first token so the client can learn things it can't
-    // get from the status line — notably the id of a just-created conversation,
-    // which the non-streaming path returns in its JSON body.
+    // Before the first token, so the client can learn e.g. the id of a
+    // just-created conversation.
     if (meta) res.write(this.format("meta", meta));
 
-    // Stop streaming if the client disconnects (e.g. the Stop button).
-    // NOTE: listen on `res`, not `req`. `req`'s "close" fires as soon as
-    // express.json() finishes consuming the (fully-buffered) request body, so it is
-    // NOT a disconnect signal. `res`'s "close" fires only when the socket actually
-    // goes away; `writableFinished` guards against our own res.end() triggering it.
+    // Listen on `res`, not `req`: req's "close" fires when express.json()
+    // finishes reading the body, so it is not a disconnect signal.
+    // `writableFinished` guards against our own res.end() triggering it.
     let aborted = false;
     res.on("close", () => {
       if (!res.writableFinished) aborted = true

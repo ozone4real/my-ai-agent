@@ -1,11 +1,7 @@
-// Worker entrypoint.
+// Worker entrypoint: `npm run worker`.
 //
-//   npm run worker
-//
-// Separate process from the host server, so it needs its own Mongo connection:
-// mongoose buffers model calls until one exists and then rejects with
-// "Operation `tasks.findOne()` buffering timed out after 10000ms" — which is
-// what you get if this file just starts the worker and nothing else.
+// Its own process, so it needs its own Mongo connection — without one mongoose
+// buffers and then fails with "tasks.findOne() buffering timed out".
 
 import { connectDB, disconnectDB } from "../db.js";
 import ApplicationJob from "../jobs/application_job.js";
@@ -18,8 +14,7 @@ const worker = new AgenticWorker();
 worker.run();
 console.log("Starting workers");
 
-// Finish the job in flight rather than dropping it mid-run, and let Redis and
-// Mongo close cleanly so the job isn't left looking stalled.
+// Finish the in-flight job rather than leaving it looking stalled.
 const shutdown = async (signal: string) => {
   console.log(`\n${signal} received, draining…`);
   try {

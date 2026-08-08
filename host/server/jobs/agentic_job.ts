@@ -23,9 +23,8 @@ export default class AgenticJob extends ApplicationJob {
     const context = await this.previousTranscript(task._id)
 
     const taskRun = await TaskRunModel.create({ task: task._id })
-    const agent = new Agent()
-    // Default to failed: anything that escapes the try — including the process
-    // dying mid-run — should not read as a success.
+    const agent = await Agent.withSettings()
+    // Default failed: anything that escapes the try isn't a success.
     let status: Status = "failed"
 
     try {
@@ -33,8 +32,7 @@ export default class AgenticJob extends ApplicationJob {
       status = "success"
     } catch (error) {
       console.error(`Task ${task._id} run failed:`, error)
-      // Rethrown below so BullMQ retries per `attempts`; the run row is
-      // written first so the failure is visible either way.
+      // Rethrown so BullMQ retries; the run row is written first regardless.
       throw error
     } finally {
       await taskRun.updateOne({
@@ -42,26 +40,20 @@ export default class AgenticJob extends ApplicationJob {
         transcript: JSON.stringify(agent.serializedConversationHistory),
       })
 
-      // Each Agent spawns a stdio child per MCP server. Without this the
-      // worker accumulates them for the life of the process.
+      // Each Agent spawns a stdio child per MCP server.
       await agent.agent.close().catch(() => {})
     }
   }
 
   /**
-   * The transcript of this task's last finished run, so a repeating task can
-   * pick up where it left off instead of starting cold each time.
+   * The last finished run's transcript, so a repeating task isn't starting cold.
    *
-   * Failed runs count: "last time this errored on X" is context worth having.
-   * Runs still `in_progress` are skipped — that covers both a concurrent run
-   * and one whose process died before writing an outcome.
+   * Failed runs count — "last time this errored on X" is worth having.
+   * `in_progress` is skipped: a concurrent run, or one that died mid-flight.
+   * Best-effort; a corrupt transcript yields no context rather than failing.
    *
-   * Best-effort. A missing or corrupt transcript yields no context rather than
-   * failing the run, since the task can still do its job without history.
-   *
-   * Note this is a one-step lookback, not an accumulating chain: an agent's
-   * stored history holds only its own turns, so what it was given as context
-   * doesn't end up in the transcript it writes.
+   * One-step lookback, not a chain: an agent's stored history holds only its
+   * own turns, so replayed context doesn't compound.
    */
   private async previousTranscript(taskId: Types.ObjectId): Promise<AgentMessage[]> {
     const previous = await TaskRunModel.findOne({

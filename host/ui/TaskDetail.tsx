@@ -11,9 +11,8 @@ function formatStamp(iso: string): string {
 }
 
 /**
- * How long a run took. TaskRun maps `updatedAt` to `endedAt`, so the two stamps
- * are equal until the run actually finishes and writes its status — treat that
- * case as "still going" rather than reporting a 0s duration.
+ * How long a run took. `endedAt` is `updatedAt`, so it equals `startedAt` until
+ * the run finishes — report nothing rather than a 0s duration.
  */
 function formatDuration(run: TaskRun): string | null {
   if (run.status === "in_progress") return null;
@@ -52,11 +51,9 @@ export function TaskDetail({
   onDelete: () => void;
   deleting: boolean;
 }) {
-  // A second click is required to delete. Keyed on the task id so an armed
-  // button can never carry over onto a different record.
+  // Keyed on the task id so an armed button can't carry to another record.
   const { armed: confirming, trigger: arm } = useArmedAction(onDelete, task.id);
-  // Prompts are instructions, not titles — real ones run to several paragraphs.
-  // Clamp by default so the schedule, metadata and runs stay above the fold.
+  // Prompts are instructions, not titles; clamp so the rest stays above the fold.
   const [promptOpen, setPromptOpen] = useState(false);
 
   const succeeded = task.runs.filter((r) => r.status === "success").length;
@@ -107,9 +104,7 @@ export function TaskDetail({
         <div>
           <span className="label">From conversation</span>
           {task.sourceConversation ? (
-            // A real link, so it opens in a new tab / can be copied like any
-            // other. The thread may since have been deleted — that route shows
-            // its own "could not load" rather than failing here.
+            // A real link so it can be opened in a tab or copied.
             <Link className="convo-link" to={`/conversations/${task.sourceConversation}`}>
               <code>{task.sourceConversation.slice(-6)}</code>
               <span aria-hidden="true"> ↗</span>

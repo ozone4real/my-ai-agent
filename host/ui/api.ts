@@ -29,6 +29,53 @@
 const API = "/api";
 const ENDPOINT = `${API}/conversations`;
 const TASKS_ENDPOINT = `${API}/tasks`;
+const SETTINGS_ENDPOINT = `${API}/settings`;
+
+/** App-wide settings. There is one of these, not one per user. */
+export interface Settings {
+  fullName: string;
+  /** What the assistant calls you. */
+  preferredName: string;
+  /** Standing instructions added to every agent run. */
+  instructions: string;
+  defaultModel: string;
+  updatedAt: string;
+  /** Valid values for `defaultModel`, so the UI never hardcodes a list. */
+  availableModels: string[];
+}
+
+export type SettingsUpdate = Partial<
+  Pick<Settings, "fullName" | "preferredName" | "instructions" | "defaultModel">
+>;
+
+export async function getSettings(signal?: AbortSignal): Promise<Settings> {
+  const res = await fetch(SETTINGS_ENDPOINT, {
+    headers: { accept: "application/json" },
+    signal,
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as Settings;
+}
+
+export async function updateSettings(update: SettingsUpdate): Promise<Settings> {
+  const res = await fetch(SETTINGS_ENDPOINT, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(update),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as Settings;
+}
+
+/** Put every field back to its default. */
+export async function resetSettings(): Promise<Settings> {
+  const res = await fetch(SETTINGS_ENDPOINT, {
+    method: "DELETE",
+    headers: { accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as Settings;
+}
 
 /** A scheduled task, as returned by `GET /tasks`. */
 export interface Task {
@@ -278,7 +325,6 @@ async function readSseStream(
             }
             break;
           case "token": {
-            // Every agent payload arrives here; `phase` says which kind.
             if (payload?.phase === "done") {
               reply = stringifyReply(payload.content);
               handlers.onReply?.(reply);

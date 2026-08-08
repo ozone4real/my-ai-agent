@@ -1,0 +1,194 @@
+# Full stack: data stores, the agent's external dependencies, and the three
+# Node services that share one image.
+#
+#   docker compose up -d --build                        production-ish
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up   dev
+#
+# Required in .env: DEEP_SEEK_API_KEY (and BREVO_MCP_TOKEN if you use Brevo).
+
+name: my-mcp-server
+
+x-node-service: &node-service
+  build:
+    context: .
+  restart: unless-stopped
+  env_file: [.env]
+  environment: &node-env
+    NODE_ENV: production
+    # Cron schedules fire in container time. Without this a "0 9 * * 1" task
+    # would run at 09:00 UTC rather than 09:00 local.
+    TZ: ${TZ:-Europe/London}
+    MONGODB_URI: mongodb://mongo:27017/my-mcp-server?replicaSet=rs0
+    REDIS_HOST: redis
+    APP_MCP_URL: http://app-mcp:8000/mcp
+    SEARXNG_URL: http://searxng:8080
+    # Resolved to an IP by docker/entrypoint.sh — Chrome's DevTools endpoint
+    # rejects a Host header that isn't an IP or localhost.
+    CHROME_HOST: chrome
+    CHROME_PORT: "9223"
+    AGENT_FILESYSTEM_ROOT: /workspace
+  volumes:
+    # The filesystem MCP server's sandbox, and what the shell tool sees.
+    - ./workspace:/workspace
+  depends_on:
+    mongo: { condition: service_healthy }
+    redis: { condition: service_healthy }
+
+services:
+  mongo:
+    image: mongo:8
+    # A single-node replica set rather than a standalone, so transactions work.
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # Initiating from the healthcheck is the usual single-node trick: the
+      # first probe sets the set up, later ones just confirm it has a PRIMARY.
+      # `mongo:27017` as the member host is what lets other containers connect.
+      test: >
+        mongosh --quiet --eval "
+          try { rs.status().ok }
+          catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongo:27017'}]}).ok }
+        "
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    # Persist the job schedulers; without this every restart loses them until
+    # reconcileTaskSchedulers() rebuilds them from Mongo.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Self-hosted metasearch behind the agent's websearch tool.
+  searxng:
+    image: searxng/searxng:latest
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-local-dev-agent-searxng-secret}
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Headful Chromium on a virtual display (docker/chrome). Headful rather than
+  # `--headless=new`: a real browser has real WebGL strings, fonts and screen
+  # metrics, which a spoofed User-Agent cannot supply.
+  chrome:
+    build:
+      context: .
+      dockerfile: docker/chrome/Dockerfile
+    restart: unless-stopped
+    environment:
+      SCREEN: ${CHROME_SCREEN:-1920x1080x24}
+      # Lets you watch the browser on a machine with no screen. Unauthenticated,
+      # so it is only reachable via the localhost publish below.
+      ENABLE_VNC: ${CHROME_ENABLE_VNC:-false}
+      # Unset by default: headful Chromium reports a real UA, and an override
+      # that disagrees with the UA-CH client hints is worse than none.
+      CHROME_USER_AGENT: ${CHROME_USER_AGENT:-}
+    command:
+      - --no-sandbox
+      - --disable-blink-features=AutomationControlled
+      # There is no GPU, so WebGL has to come from SwiftShader — and Chrome 128+
+      # refuses to use it for WebGL without this flag. Without it
+      # getContext("webgl") returns null, which no real desktop browser does.
+      - --enable-unsafe-swiftshader
+      - --use-gl=angle
+      - --use-angle=swiftshader
+    volumes:
+      # Cookies and site data survive a restart, so a session established once
+      # isn't thrown away on every deploy.
+      - chrome-profile:/profile
+    ports:
+      # 127.0.0.1 only — never expose an unauthenticated VNC on a public host.
+      - "127.0.0.1:${CHROME_VNC_PORT:-5900}:5900"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9222/json/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # Chrome only listens for DevTools on 127.0.0.1 outside old headless, so
+  # publish it with a forwarder in Chrome's own network namespace: bind
+  # 0.0.0.0:9223 there and hand it to 127.0.0.1:9222.
+  #
+  # Sharing the namespace also keeps the Host header valid — callers reach it at
+  # Chrome's IP, and Chrome accepts an IP Host where it would reject a name.
+  chrome-proxy:
+    image: alpine/socat:latest
+    network_mode: "service:chrome"
+    restart: unless-stopped
+    command: ["TCP-LISTEN:9223,fork,reuseaddr", "TCP:127.0.0.1:9222"]
+    depends_on:
+      chrome: { condition: service_healthy }
+
+  # This project's own MCP server (tasks + run history). Its own service so the
+  # express container doesn't also start an in-process copy.
+  app-mcp:
+    <<: *node-service
+    command: ["npx", "tsx", "mcp_servers/serve.ts"]
+    environment:
+      <<: *node-env
+      APP_MCP_PORT: "8000"
+      # mcp-use binds 127.0.0.1 unless told otherwise, which makes it
+      # unreachable from sibling containers even though the port is "open".
+      HOST: 0.0.0.0
+      MCP_ALLOWED_HOSTS: app-mcp
+    healthcheck:
+      # 204 on the MCP endpoint means it is mounted and serving.
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8000/mcp').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  server:
+    <<: *node-service
+    command: ["npx", "tsx", "host/server/index.ts"]
+    environment:
+      <<: *node-env
+      PORT: "8080"
+      # app-mcp is a separate service here; don't start a second copy in-process.
+      START_APP_MCP: "false"
+    ports:
+      # Host port is configurable so it doesn't clash with a server you already
+      # run locally on 8080. Container port stays fixed.
+      - "${SERVER_PORT:-8080}:8080"
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      # The agent cannot start at all if this is unreachable — one failed
+      # connector aborts every session, not just the task tools.
+      app-mcp: { condition: service_healthy }
+      searxng: { condition: service_started }
+      chrome: { condition: service_started }
+
+  worker:
+    <<: *node-service
+    command: ["npx", "tsx", "host/server/workers/index.ts"]
+    environment:
+      <<: *node-env
+      START_APP_MCP: "false"
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      app-mcp: { condition: service_healthy }
+      searxng: { condition: service_started }
+      chrome: { condition: service_started }
+
+volumes:
+  mongo-data:
+  redis-data:
+  chrome-profile:

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { MCPAgent } from "@mcp-use/agent/langchain";
 import type { MCPAgentOptions, MCPServerConfig, LangChainAgentStep as AgentStep } from "@mcp-use/agent/langchain";
 import type { LLMConfig } from "@mcp-use/agent";
@@ -11,7 +13,7 @@ import { convert, serialize, toLangChainHistory } from "./message_converters/dee
 import type { DeepSeekMessage, LangChainMessage } from "./message_converters/deep_seek.js";
 
 
-enum ModelType {
+export enum ModelType {
   SONNET_4_8 = "claude-sonnet-4-8",
   OPUS_4_8 = "claude-opus-4-8",
   SONNET_5_0 = "claude-sonnet-5-0",
@@ -19,14 +21,10 @@ enum ModelType {
   DEEPSEEK_V4_FLASH = "deepseek-v4-flash"
 }
 
-/**
- * One prior turn of history. Either form is accepted: LangChain messages as
- * they come off {@link Agent.conversationHistory}, or the DeepSeek JSON the
- * routes store — both are normalized before reaching the agent.
- */
+/** A prior turn: LangChain messages or the stored DeepSeek JSON. Both work. */
 export type AgentMessage = DeepSeekMessage | LangChainMessage
 
-const MODELS = {
+export const MODELS = {
   "deepseek": [ModelType.DEEPSEEK_V4_FLASH],
   "anthropic": [ModelType.SONNET_4_8, ModelType.OPUS_4_8, ModelType.SONNET_5_0, ModelType.OPUS_5_0]
 }
@@ -45,12 +43,8 @@ export interface AgentToolCall {
 }
 
 /**
- * One payload from {@link Agent.streamEvents}, discriminated on `phase` so
- * narrowing on it also narrows `content`:
- *
- *   reasoning -> incremental thinking text, many per turn
- *   working   -> a tool call, one per invocation
- *   done      -> the final answer, exactly once, last
+ * Discriminated on `phase`, so narrowing it narrows `content`:
+ * reasoning (many per turn) -> working (one per tool call) -> done (once, last).
  */
 export type AgentStreamEventPayload =
   | { phase: "reasoning"; content: string }
@@ -61,14 +55,11 @@ export type AgentStreamEventPayload =
 const REASONING_CHUNK_WORDS = 50
 
 /**
- * Index just past the `count`-th word of `text`, or -1 when the text doesn't
- * yet hold a provable `count` words.
+ * Index just past the `count`-th word, or -1 if not yet provable.
  *
- * "Provable" is the point: a streamed buffer can end mid-word, so the cut is
- * only returned once a *further* word has been seen — that's what shows word
- * `count` was terminated rather than still arriving. Working in indices instead
- * of a split/join keeps the original whitespace, so the emitted chunks
- * concatenate back into exactly the text the model produced.
+ * A streamed buffer can end mid-word, so the cut is only returned once a
+ * further word has been seen. Indices rather than split/join so the original
+ * whitespace survives.
  */
 const splitAfterWords = (text: string, count: number): number => {
   const words = /\S+/g
@@ -88,12 +79,8 @@ const splitAfterWords = (text: string, count: number): number => {
 }
 
 /**
- * Unwrap the arguments an `on_tool_start` event reports.
- *
- * LangChain hands these over as `{ input: ... }`, and for MCP tools the inner
- * value is usually the raw JSON string the model emitted rather than a parsed
- * object — so consumers would otherwise get a string wrapped in a pointless
- * key. Anything that doesn't match those shapes passes through untouched.
+ * LangChain reports tool args as `{ input: ... }`, and for MCP tools the inner
+ * value is the raw JSON string. Unwrap both; anything else passes through.
  */
 const readToolArgs = (input: unknown): unknown => {
   const unwrapped =
@@ -111,20 +98,14 @@ const readToolArgs = (input: unknown): unknown => {
   return unwrapped
 }
 
-/**
- * Pull reasoning text out of a streamed model chunk, whatever provider produced
- * it. Each layer is a fallback for the one above, because a chunk only reaches
- * the later ones if the earlier extraction found nothing.
- */
+/** Reasoning text from a streamed chunk, whatever provider produced it. */
 const readReasoning = (chunk: any): string => {
   if (!chunk) return ""
 
-  // 1. LangChain v1 standard blocks. `contentBlocks` picks a translator off
-  //    `response_metadata.model_provider`, and @langchain/core ships ones for
-  //    anthropic, openai, deepseek, google/google-genai/google-vertexai, xai,
-  //    groq, ollama, openrouter and bedrock-converse — so Anthropic `thinking`,
-  //    Gemini `thought` parts, DeepSeek/Grok `reasoning_content` and OpenAI
-  //    reasoning summaries all arrive here as `{ type: "reasoning" }`.
+  // 1. v1 standard blocks. `contentBlocks` dispatches on
+  //    response_metadata.model_provider, so Anthropic thinking, Gemini thought
+  //    parts, DeepSeek/Grok reasoning_content and OpenAI summaries all land
+  //    here as `{ type: "reasoning" }`.
   try {
     const blocks = chunk.contentBlocks
     if (Array.isArray(blocks)) {
@@ -135,14 +116,10 @@ const readReasoning = (chunk: any): string => {
       if (reasoning) return reasoning
     }
   } catch {
-    // Not a real AIMessageChunk (e.g. re-serialized across a boundary) — the
-    // raw-shape fallbacks below still work on a plain object.
+    // Not a real AIMessageChunk; the raw-shape fallbacks below still work.
   }
 
-  // 2. Raw provider fields, for chunks carrying no `model_provider` for core to
-  //    dispatch on. DeepSeek and xAI/Grok use `reasoning_content`; Groq and
-  //    OpenRouter use a plain `reasoning` string; the OpenAI Responses API
-  //    nests summary parts under `reasoning.summary`.
+  // 2. Raw fields, for chunks with no model_provider to dispatch on.
   const kwargs = chunk.additional_kwargs ?? {}
   if (typeof kwargs.reasoning_content === "string") return kwargs.reasoning_content
   if (typeof kwargs.reasoning === "string") return kwargs.reasoning
@@ -154,8 +131,7 @@ const readReasoning = (chunk: any): string => {
     if (typeof kwargs.reasoning.text === "string") return kwargs.reasoning.text
   }
 
-  // 3. Anthropic-shaped content arrays, whose thinking deltas live in the
-  //    content list rather than in additional_kwargs.
+  // 3. Anthropic-shaped arrays, where thinking deltas live in the content list.
   if (Array.isArray(chunk.content)) {
     return chunk.content
       .filter((block: any) => block?.type === "thinking" || block?.type === "reasoning")
@@ -169,29 +145,63 @@ const readReasoning = (chunk: any): string => {
 export interface AgentOptions {
   model?: ModelType
   /**
-   * The conversation this agent is answering in, when there is one. Surfaced to
-   * the model so it can pass provenance to tools that ask for it — notably
-   * `schedule-task`, whose `sourceConversation` is otherwise unknowable from
-   * inside the run.
+   * Surfaced to the model so it can pass provenance to tools that ask for it —
+   * `schedule-task`'s `sourceConversation` is otherwise unknowable in-run.
    */
   conversationId?: string
+  /** Who the user is and how they want to be addressed. */
+  preferredName?: string
+  /** Standing instructions from Settings, added to the system message. */
+  userInstructions?: string
 }
 
 /**
- * The run-scoped facts the model should know, as a system instruction.
+ * Operating instructions, read once at startup.
  *
- * Returns undefined when there's nothing to say, so a background run (a
- * scheduled task, say) doesn't get a paragraph explaining that it has no
- * conversation.
+ * Loud on failure rather than silently running an agent with no rules — the
+ * file ships with the source, so a missing one means a broken deploy.
  */
-const buildContextInstructions = (conversationId?: string): string | undefined => {
-  if (!conversationId) return undefined
-  return [
-    `You are answering inside conversation ${conversationId}.`,
-    `When a tool takes a conversation id — for example the sourceConversation`,
-    `argument of schedule-task — pass exactly that value. Do not invent one, and`,
-    `do not mention the id to the user unless they ask for it.`,
-  ].join(" ")
+const OPERATING_INSTRUCTIONS = (() => {
+  const file = path.join(import.meta.dirname, "instructions.md")
+  try {
+    return readFileSync(file, "utf8").trim()
+  } catch (err) {
+    throw new Error(
+      `Could not read agent operating instructions at ${file}: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    )
+  }
+})()
+
+/** Operating rules first, then run-scoped facts, then the user's own. */
+const buildContextInstructions = ({
+  conversationId,
+  preferredName,
+  userInstructions,
+}: Pick<AgentOptions, "conversationId" | "preferredName" | "userInstructions">): string => {
+  // First: the operating rules are the baseline everything else sits on.
+  const parts: string[] = [OPERATING_INSTRUCTIONS]
+
+  if (preferredName) {
+    parts.push(`The user prefers to be called ${preferredName}.`)
+  }
+
+  if (conversationId) {
+    parts.push(
+      [
+        `You are answering inside conversation ${conversationId}.`,
+        `When a tool takes a conversation id — for example the sourceConversation`,
+        `argument of schedule-task — pass exactly that value. Do not invent one, and`,
+        `do not mention the id to the user unless they ask for it.`,
+      ].join(" ")
+    )
+  }
+
+  // Last, so the user's own instructions win any disagreement with the above.
+  if (userInstructions) parts.push(userInstructions)
+
+  return parts.join("\n\n")
 }
 
 export class Agent {
@@ -201,9 +211,28 @@ export class Agent {
   public mcpServers: Record<string, MCPServerConfig> = ServersDefinition
   private client: MCPClient
 
+  /**
+   * An agent with Settings applied; explicit options win.
+   *
+   * A factory because settings come from Mongo and the constructor has to build
+   * the MCPAgent synchronously.
+   */
+  static async withSettings(options: AgentOptions = {}): Promise<Agent> {
+    const { loadSettings } = await import("../models/settings.js")
+    const settings = await loadSettings()
+    return new Agent({
+      model: options.model ?? (settings.defaultModel as ModelType),
+      preferredName: options.preferredName ?? settings.preferredName ?? undefined,
+      userInstructions: options.userInstructions ?? settings.instructions ?? undefined,
+      conversationId: options.conversationId,
+    })
+  }
+
   constructor({
     model = ModelType.DEEPSEEK_V4_FLASH,
     conversationId,
+    preferredName,
+    userInstructions,
   }: AgentOptions = {}) {
     // const llm = new ChatAnthropic({
     //   model,
@@ -227,13 +256,9 @@ export class Agent {
       llm,
       client: this.client,
       maxSteps: 100,
-      // Appended to the generated system message, after the tool descriptions.
-      //
-      // NOTE: this is the only way to get a system instruction in. Putting a
-      // SystemMessage in `externalHistory` looks like it should work and is
-      // silently discarded — the agent filters that array down to human, AI and
-      // tool messages before use.
-      additionalInstructions: buildContextInstructions(conversationId),
+      // The only way in: a SystemMessage in `externalHistory` is silently
+      // discarded, since that array is filtered to human/AI/tool messages.
+      additionalInstructions: buildContextInstructions({ conversationId, preferredName, userInstructions }),
     })
   }
 

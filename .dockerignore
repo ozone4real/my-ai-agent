@@ -1,0 +1,13 @@
+node_modules
+host/dist
+dist
+.mcp-use
+.git
+.claude
+.cursor
+.agent
+searxng
+*.log
+dump.json
+messages.json
+workspace

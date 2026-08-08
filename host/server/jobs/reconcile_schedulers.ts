@@ -1,15 +1,8 @@
 // Make BullMQ's schedulers match the Task collection.
 //
-// Mongo is the source of truth; the schedulers in Redis are derived state that
-// can drift whenever the two can't be written together:
-//
-//   - Redis was down while a task was edited, so its cron is stale
-//   - a bulk `TaskModel.deleteMany(...)` bypassed the document delete hook,
-//     leaving schedulers firing for tasks that no longer exist
-//   - Redis lost its data
-//
-// Running this at startup (and after an outage) repairs all of those without
-// anyone having to notice.
+// Mongo is the source of truth; Redis holds derived state that drifts when the
+// two can't be written together — an outage mid-edit, a bulk deleteMany that
+// bypassed the document hook, or Redis losing its data. Run at startup.
 
 import { underscore } from "inflection";
 import AgenticJob from "./agentic_job.js";
@@ -36,8 +29,7 @@ export async function reconcileTaskSchedulers(): Promise<ReconcileResult> {
     const current = existing.get(id);
     const wanted = { pattern: task.schedule, limit: task.limit ?? undefined };
 
-    // `?? undefined` on both sides: BullMQ reports an absent limit as null,
-    // the model as undefined, and those mean the same thing here.
+    // BullMQ reports an absent limit as null, the model as undefined.
     const matches =
       current?.pattern === wanted.pattern &&
       (current?.limit ?? undefined) === wanted.limit;
@@ -55,7 +47,7 @@ export async function reconcileTaskSchedulers(): Promise<ReconcileResult> {
     existing.delete(id);
   }
 
-  // Whatever is left has no task behind it.
+  // Whatever's left has no task behind it.
   for (const key of existing.keys()) {
     await queue.removeJobScheduler(key);
     result.removed++;

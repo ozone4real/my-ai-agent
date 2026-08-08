@@ -1,18 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Two-step confirmation for a destructive action: the first call arms it, the
- * second commits.
+ * Two-step confirm: the first call arms, the second commits. Disarms itself so
+ * a hot button isn't left for a later, unrelated click.
  *
- * Preferred over `window.confirm()` — that blocks the whole page and reads as a
- * browser error — and over a modal, which is a lot of machinery for "are you
- * sure". The armed state disarms itself so a hot button is never left lying
- * around for a later, unrelated click.
- *
- * @param onConfirm - Runs on the second call.
- * @param resetKey - Disarms whenever this changes. Pass the id of whatever the
- * button acts on, so an armed button can't carry over onto a different record.
- * @param timeoutMs - How long the armed state survives.
+ * @param resetKey - Disarms when it changes. Pass the id of whatever the button
+ * acts on, so an armed button can't carry onto a different record.
  */
 export function useArmedAction(
   onConfirm: () => void,
@@ -34,8 +27,7 @@ export function useArmedAction(
     clear();
   }, [resetKey, clear]);
 
-  // Don't leave a timer running against an unmounted component — a deleted row
-  // unmounts the moment the action succeeds.
+  // A deleted row unmounts the moment the action succeeds.
   useEffect(() => clear, [clear]);
 
   const trigger = useCallback(() => {

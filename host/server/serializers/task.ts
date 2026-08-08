@@ -1,23 +1,13 @@
-// Wire shapes for Task and TaskRun, in both directions.
-//
-// Shared by the REST routes and the MCP server so the two can't drift: the
-// output shapes double as the MCP tools' `outputSchema` and are validated
-// against whatever the serializers produce, and the update shape is the single
-// definition of what may be changed on a task.
+// Wire shapes for Task and TaskRun, shared by the REST routes and the MCP
+// server so they can't drift. The output shapes double as MCP `outputSchema`.
 
-// NOTE: the `.js` extensions are load-bearing and unlike the rest of host/.
-// mcp_servers/ imports this file and compiles under NodeNext, which won't guess
-// extensions; host/ uses bundler resolution, which accepts them either way. So
-// the explicit form is the one that satisfies both.
+// The `.js` extensions are load-bearing: mcp_servers/ imports this under
+// NodeNext, which won't guess them. Bundler resolution accepts them too.
 import { z } from "zod";
 import { CREATORS, type TaskDocument } from "../models/task.js";
 import { STATUSES, type TaskRunDocument } from "../models/task_run.js";
 
-/**
- * Optional fields are nullable rather than absent, so the shape is identical on
- * every response — a key that sometimes vanishes is harder for both a client and
- * a model to handle than an explicit null.
- */
+/** Optional fields are nullable, not absent — a stable shape every time. */
 export const taskShape = z.object({
   id: z.string().describe("The task's id"),
   creator: z.enum(CREATORS).describe("Who the task is recorded as coming from"),
@@ -73,11 +63,8 @@ export const serializeTaskRun = (run: TaskRunDocument): SerializedTaskRun => ({
 });
 
 /**
- * The mutable surface of a task. Everything else — creator, sourceConversation,
- * timestamps — is provenance and is fixed once written.
- *
- * Every field is optional so a caller can change one thing without restating
- * the rest; `limit: null` clears the cap, meaning "run indefinitely".
+ * The mutable surface; creator, sourceConversation and timestamps are fixed.
+ * All optional so one field can change alone; `limit: null` clears the cap.
  */
 export const taskUpdateShape = z
   .object({
@@ -101,19 +88,14 @@ export const taskUpdateShape = z
       .optional()
       .describe("New maximum number of runs; null clears the cap"),
   })
-  // Unknown keys are stripped, so a body of only junk arrives here as `{}` and
-  // is rejected rather than silently saving nothing.
+  // Unknown keys are stripped, so a junk-only body lands here as `{}`.
   .refine((update) => Object.keys(update).length > 0, {
     message: "Provide at least one of prompt, schedule or limit",
   });
 
 export type TaskUpdate = z.infer<typeof taskUpdateShape>;
 
-/**
- * Apply an update in place. Absent keys are left alone — distinguishing
- * "not mentioned" from "explicitly cleared" is why `limit` is nullable rather
- * than just optional.
- */
+/** Absent keys are left alone; `limit` is nullable so it can be cleared. */
 export const applyTaskUpdate = (task: TaskDocument, update: TaskUpdate): void => {
   if (update.prompt !== undefined) task.prompt = update.prompt;
   if (update.schedule !== undefined) task.schedule = update.schedule;
