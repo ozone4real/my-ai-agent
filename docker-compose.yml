@@ -145,7 +145,7 @@ services:
   # express container doesn't also start an in-process copy.
   app-mcp:
     <<: *node-service
-    command: ["npx", "tsx", "mcp_servers/serve.ts"]
+    command: ["node", "dist/app-mcp.js"]
     environment:
       <<: *node-env
       APP_MCP_PORT: "8000"
@@ -162,7 +162,7 @@ services:
 
   server:
     <<: *node-service
-    command: ["npx", "tsx", "host/server/index.ts"]
+    command: ["node", "dist/server.js"]
     environment:
       <<: *node-env
       PORT: "8080"
@@ -183,7 +183,7 @@ services:
 
   worker:
     <<: *node-service
-    command: ["npx", "tsx", "host/server/workers/index.ts"]
+    command: ["node", "dist/worker.js"]
     environment:
       <<: *node-env
       START_APP_MCP: "false"

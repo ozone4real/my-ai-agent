@@ -141,7 +141,6 @@ router.post("/", async (req: Request, res: Response) => {
   // Bound, or `this` is undefined inside the generator. `input` is spread as
   // the generator's arguments, so it must be an argument list.
   await sse.stream(res, [params.message], agent.streamEvents.bind(agent), async (data: AgentStreamEventPayload | undefined) => {
-    agent.agent.close()
      // Only the terminal payload carries the reply text; "working" payloads are steps.
     if (data?.phase !== "done") return
     await createMessage(String(data.content), conversation, null, "assistant")
@@ -187,14 +186,7 @@ router.post("/:conversation_id/messages", async(req: Request, res: Response) => 
 
   const sse = new SSEStream(req)
 
-  // await sse.stream(res, [params.message, history], agent.stream.bind(agent), async (data: AgentStreamPayload | undefined) => {
-  //   agent.agent.close()
-  //    // Only the terminal payload carries the reply text; "working" payloads are steps.
-  //   if (data?.phase !== "done") return
-  //   await createMessage(String(data.value), conversation, null, "assistant")
-  // })
   await sse.stream(res, [params.message, history], agent.streamEvents.bind(agent), async (data: AgentStreamEventPayload | undefined) => {
-    agent.agent.close()
      // Only the terminal payload carries the reply text; "working" payloads are steps.
     if (data?.phase !== "done") return
     await createMessage(String(data.content), conversation, null, "assistant")

@@ -52,7 +52,7 @@ export type AgentStreamEventPayload =
   | { phase: "done"; content: string }
 
 /** How much reasoning to gather before emitting a payload. */
-const REASONING_CHUNK_WORDS = 50
+const REASONING_CHUNK_WORDS = 10
 
 /**
  * Index just past the `count`-th word, or -1 if not yet provable.
@@ -113,9 +113,25 @@ const OPERATING_INSTRUCTIONS = (() => {
 export class Agent {
   public agent: MCPAgent
   private llm: ChatDeepSeek
-  
+
   public mcpServers: Record<string, MCPServerConfig> = ServersDefinition
-  private client: MCPClient
+
+  /**
+   * One client for the whole process, shared by every agent.
+   *
+   * Connecting the MCP servers spawns a child process each and takes 9-28s
+   * An agent with its own client paid that per request;
+   * over a shared one, `initialize()` finds the sessions
+   * already open and returns in ~20-130ms.
+   *
+   * Only the connectors are shared. Each agent still gets its own system
+   * message, tool bindings and history, so per-conversation
+   * `additionalInstructions` still work.
+   */
+  private static sharedClient = new MCPClient({ mcpServers: ServersDefinition })
+
+  /** Memoised so concurrent first requests connect once, not once each. */
+  private static sessions: Promise<unknown> | null = null
 
   /**
    * An agent with Settings applied; explicit options win.
@@ -156,11 +172,9 @@ export class Agent {
 
     this.llm = llm
 
-    this.client = new MCPClient({ mcpServers: this.mcpServers })
-
     this.agent = new MCPAgent({
       llm,
-      client: this.client,
+      client: Agent.sharedClient,
       maxSteps: 100,
       // The only way in: a SystemMessage in `externalHistory` is silently
       // discarded, since that array is filtered to human/AI/tool messages.
@@ -168,7 +182,29 @@ export class Agent {
     })
   }
 
+  /**
+   * Connect the MCP servers. Safe to call repeatedly — only the first call
+   * connects. Call it at boot so the first request doesn't wear the cost.
+   */
+  static warmup(): Promise<unknown> {
+    // Clear on failure, or one bad connector at boot poisons every later call
+    // with the same rejected promise.
+    Agent.sessions ??= Agent.sharedClient.createAllSessions().catch((err) => {
+      Agent.sessions = null
+      throw err
+    })
+    return Agent.sessions
+  }
+
+  /** Disconnect every MCP server. Process shutdown only — this is shared state. */
+  static async shutdown(): Promise<void> {
+    if (!Agent.sessions) return
+    Agent.sessions = null
+    await Agent.sharedClient.close()
+  }
+
   async run(prompt: string, context: AgentMessage[] = []) {
+    await Agent.warmup()
     const result = await this.agent.run({
       prompt,
       externalHistory: toLangChainHistory(context)
@@ -176,6 +212,7 @@ export class Agent {
     return result;
   }
   async *stream(prompt: string, context: AgentMessage[] = []): AsyncGenerator<AgentStreamPayload> {
+    await Agent.warmup()
     const stream = this.agent.stream({
       prompt,
       manageConnector: true,
@@ -190,7 +227,6 @@ export class Agent {
       }
       yield({ phase: "working", value })
     }
-    await this.agent.close();
   }
 
   /**
@@ -235,6 +271,8 @@ export class Agent {
         reasoningBuffer = ""
       }
     }
+
+    await Agent.warmup()
 
     for await (const event of this.agent.streamEvents({
       prompt,
@@ -293,8 +331,14 @@ export class Agent {
     // tool-calling turn (hitting maxSteps, say) still terminates with a reply
     // rather than silence.
     yield { phase: "done", content: finalText || lastText }
+  }
 
-    await this.agent.close();
+  /**
+   * Drop this agent's per-run state. Not `agent.close()` — that closes the
+   * shared client's sessions out from under every other agent.
+   */
+  cleanup() {
+    this.agent.clearConversationHistory()
   }
 
   /**

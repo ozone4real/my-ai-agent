@@ -37,7 +37,8 @@
     "search:logs": "docker compose logs -f searxng",
     "start": "mcp-use start",
     "deploy": "mcp-use deploy",
-    "postinstall": "mcp-use typecheck || exit 0"
+    "postinstall": "mcp-use typecheck || exit 0",
+    "build:server": "node build.mjs"
   },
   "engines": {
     "node": ">=23.11.1"

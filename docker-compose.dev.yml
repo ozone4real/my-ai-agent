@@ -6,39 +6,51 @@
 # edits are picked up without a rebuild. The express service still serves
 # host/dist if it was built, but in dev you use Vite on :5173 instead.
 
+# The dev image is the build stage, which still has tsx and the source.
+x-dev-build: &dev-build
+  build:
+    context: .
+    target: build
+  environment: &dev-env
+    NODE_ENV: development
+
 services:
   server:
+    <<: *dev-build
     environment:
-      NODE_ENV: development
+      <<: *dev-env
     volumes:
       - ./workspace:/workspace
       # Source is mounted; node_modules stays the image's (built for linux).
       - ./host:/app/host
       - ./mcp_servers:/app/mcp_servers
     # tsx watch restarts on edit.
-    command: ["npx", "tsx", "watch", "host/server/index.ts"]
+    command: ["node", "--import", "tsx", "--watch", "host/server/index.ts"]
 
   worker:
+    <<: *dev-build
     environment:
-      NODE_ENV: development
+      <<: *dev-env
     volumes:
       - ./workspace:/workspace
       - ./host:/app/host
       - ./mcp_servers:/app/mcp_servers
-    command: ["npx", "tsx", "watch", "host/server/workers/index.ts"]
+    command: ["node", "--import", "tsx", "--watch", "host/server/workers/index.ts"]
 
   app-mcp:
+    <<: *dev-build
     volumes:
       - ./workspace:/workspace
       - ./host:/app/host
       - ./mcp_servers:/app/mcp_servers
-    command: ["npx", "tsx", "watch", "mcp_servers/serve.ts"]
+    command: ["node", "--import", "tsx", "--watch", "mcp_servers/serve.ts"]
 
   # Vite, proxying /api to the express service. `--host` is required or it binds
   # to loopback inside the container and nothing reaches it.
   web:
     build:
       context: .
+      target: build
     restart: unless-stopped
     environment:
       # host/vite.config.ts reads this for the proxy target.

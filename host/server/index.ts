@@ -19,7 +19,6 @@ const PORT = Number(process.env.PORT ?? 8080);
 
 const app = express();
 app.use(express.json());
-const agent = new Agent()
 
 // Basic CORS (harmless; the Vite proxy means the browser calls same-origin).
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -96,10 +95,40 @@ async function startAppMcpServer() {
   }
 }
 
-void startAppMcpServer();
+// Warm the shared MCP connectors after the app server is listening — it is one
+// of them, and a connector that can't connect fails every agent turn. Doing it
+// here moves the 9-28s of `npx` spawning off the first request.
+void startAppMcpServer().then(async () => {
+  const started = Date.now();
+  try {
+    await Agent.warmup();
+    console.log(`MCP servers connected in ${Date.now() - started}ms`);
+  } catch (err) {
+    console.warn(
+      `Could not connect the MCP servers; the first agent turn will retry: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+});
+
+const shutdown = async (signal: string) => {
+  console.log(`\n${signal} received, closing MCP servers…`);
+  try {
+    await Agent.shutdown();
+  } finally {
+    process.exit(0);
+  }
+};
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
 
 // Serve the built SPA when it exists; in dev Vite does this instead.
-const spaDir = path.resolve(import.meta.dirname, "../dist");
+// UI_DIST_DIR because the relative path differs between running from source
+// (host/server -> host/dist) and running a bundle in dist/.
+const spaDir = process.env.UI_DIST_DIR
+  ? path.resolve(process.env.UI_DIST_DIR)
+  : path.resolve(import.meta.dirname, "../dist");
 if (existsSync(path.join(spaDir, "index.html"))) {
   app.use(express.static(spaDir));
   // Client-side routes. /api is handled above, so this can't shadow it.

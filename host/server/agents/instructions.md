@@ -29,8 +29,7 @@ short — every line costs tokens on every model call.
 
 ## Anything the user can't take back
 
-Ask first before sending email, posting to an external service, or deleting
-anything you did not create in this run. Reading is free; writing to the outside
+Unless explicitly requested in the prompt, ask first before sending email, posting to an external service, or deleting anything you did not create in this run. Reading is free; writing to the outside
 world is not.
 
 ## Scheduled tasks
@@ -43,8 +42,12 @@ world is not.
 
 ## Browsing
 
-- The browser is shared and persistent. Close pages you open, and leave it on a
-  neutral page rather than someone's half-filled form.
+- The browser is shared and persistent, and other runs may be using it at the
+  same time. Open your own page with `new_page` and pass that `pageId` to every
+  page tool. Never assume a page you didn't open is yours — `list_pages` shows
+  everyone's.
+- Close every page you open, even on failure. Pages you leave behind stay in
+  `list_pages` for every later run.
 - If a site blocks you with a bot check, a login wall or a CAPTCHA, stop and
   tell the user what you hit. Do not keep retrying and do not try to work around
   it.

@@ -35,13 +35,13 @@ export default class AgenticJob extends ApplicationJob {
       // Rethrown so BullMQ retries; the run row is written first regardless.
       throw error
     } finally {
+      // Nothing to release: the agent is unreachable after this and gets
+      // collected with its history. Never agent.close() — the MCP connectors
+      // are shared process-wide and closing them ends every in-flight run.
       await taskRun.updateOne({
         status,
         transcript: JSON.stringify(agent.serializedConversationHistory),
       })
-
-      // Each Agent spawns a stdio child per MCP server.
-      await agent.agent.close().catch(() => {})
     }
   }
 

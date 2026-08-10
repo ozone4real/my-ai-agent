@@ -30,17 +30,26 @@ export default {
     command: "npx",
     args: ["-y", "@modelcontextprotocol/server-filesystem", FILESYSTEM_ROOT],
   },
-  shellCommandExecutor: {
-    command: "npx",
-    args: ["tsx", "mcp_servers/command_executor.ts"]
-  },
+  // Spawned as a child process. From source that means running the TS through
+  // tsx; from a build it is a plain JS file, so the entry is env-driven.
+  shellCommandExecutor: process.env.COMMAND_EXECUTOR_ENTRY
+    ? { command: "node", args: [process.env.COMMAND_EXECUTOR_ENTRY] }
+    : { command: "npx", args: ["tsx", "mcp_servers/command_executor.ts"] },
   chromedevtools: {
     command: "npx",
     args: [
       "-y",
-      "chrome-devtools-mcp@latest",
+      // Pinned, not @latest: the page-routing flag below is experimental, so an
+      // upgrade that renames or drops it would silently take the isolation with
+      // it. Bump deliberately and re-check the flag.
+      "chrome-devtools-mcp@1.7.0",
       `--browser-url=${CHROME_URL}`,
       "--ignoreDefaultChromeArg=--enable-automation",
+      // One connector now serves every concurrent agent, so the default single
+      // "selected page" would let one agent's navigation redirect another's
+      // snapshot. This makes pageId a required argument on all 27 page-scoped
+      // tools, so each agent addresses its own page.
+      "--experimentalPageIdRouting",
     ],
   },
   brevo: {

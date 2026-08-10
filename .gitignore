@@ -51,3 +51,7 @@ host/dist
 
 # dbs
 dump.rdb
+
+# deploy config
+deploy.yml
+.kamal/*

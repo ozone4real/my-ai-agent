@@ -1,6 +1,5 @@
 node_modules
 host/dist
-dist
 .mcp-use
 .git
 .claude
