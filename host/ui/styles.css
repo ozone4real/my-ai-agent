@@ -263,11 +263,10 @@ body {
   gap: 12px;
 }
 
-/* Narrow viewports: the thread matters more than the list. */
-@media (max-width: 720px) {
-  .sidebar {
-    width: 180px;
-  }
+/* Desktop: the drawer chrome doesn't exist. */
+.topbar,
+.scrim {
+  display: none;
 }
 
 .header {
@@ -1068,4 +1067,129 @@ body {
 .settings-warning {
   font-size: 13px;
   color: var(--error);
+}
+
+
+/* ---------------------------------------------------------------------------
+   Narrow viewports. A 260px sidebar eats two thirds of a 375px phone, so it
+   becomes an off-canvas drawer and the thread gets the whole screen.
+   --------------------------------------------------------------------------- */
+@media (max-width: 720px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: none;
+    padding: 8px 12px;
+    /* Clears the notch / status bar on iOS. */
+    padding-top: max(8px, env(safe-area-inset-top));
+    border-bottom: 1px solid var(--border);
+    background: var(--panel);
+  }
+
+  .nav-toggle {
+    /* 44px is the smallest reliable touch target. */
+    min-width: 44px;
+    min-height: 44px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--panel-2);
+    color: var(--text);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .topbar-title {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .sidebar {
+    position: fixed;
+    z-index: 20;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(80vw, 300px);
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    border-right: 1px solid var(--border);
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.45);
+  }
+
+  .scrim {
+    display: block;
+    position: fixed;
+    z-index: 10;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+  }
+
+  .app {
+    /* No longer centred in a wide column — it is the whole screen. */
+    max-width: none;
+    padding: 10px 12px;
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    gap: 10px;
+  }
+
+  /* The drawer already names the section. */
+  .header {
+    display: none;
+  }
+
+  .bubble {
+    /* 80% wastes a phone's width and forces ragged wrapping. */
+    max-width: 92%;
+  }
+
+  .messages {
+    padding: 4px 0;
+    gap: 12px;
+  }
+
+  .composer textarea {
+    /* iOS zooms the viewport when a focused input is under 16px. */
+    font-size: 16px;
+  }
+
+  .composer button {
+    min-height: 44px;
+  }
+
+  /* Two columns of label/value collapse into a readable single column. */
+  .task-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .task-detail-head {
+    flex-wrap: wrap;
+  }
+
+  .settings {
+    padding: 0;
+  }
+
+  .field input,
+  .field textarea,
+  .field select {
+    font-size: 16px;
+  }
+}
+
+/* Reduced motion: the drawer should still work, just without the slide. */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
 }

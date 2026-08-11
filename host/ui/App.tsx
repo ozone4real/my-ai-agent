@@ -211,6 +211,8 @@ export function App() {
     () => parseRoute(pathname),
     [pathname]
   );
+  /** Mobile drawer. Ignored above 720px, where the sidebar is always visible. */
+  const [navOpen, setNavOpen] = useState(false);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [activeTask, setActiveTask] = useState<TaskWithRuns | null>(null);
@@ -228,6 +230,10 @@ export function App() {
   activeIdRef.current = activeId;
   taskIdRef.current = taskId;
   const [input, setInput] = useState("");
+
+  // Picking anything in the drawer navigates, so close it on every route change
+  // rather than wiring a handler onto each row.
+  useEffect(() => setNavOpen(false), [pathname]);
   const [busy, setBusy] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -519,7 +525,29 @@ export function App() {
 
   return (
     <div className="layout">
-      <aside className="sidebar">
+      {/* Mobile only (hidden by CSS above 720px): the sidebar is off-canvas
+          there, so it needs a way back. */}
+      <div className="topbar">
+        <button
+          className="nav-toggle"
+          aria-label="Open navigation"
+          aria-expanded={navOpen}
+          onClick={() => setNavOpen(true)}
+        >
+          ☰
+        </button>
+        <span className="topbar-title">
+          {pane === "chats" ? "Conversations" : pane === "tasks" ? "Scheduled" : "Preferences"}
+        </span>
+      </div>
+
+      {/* Catches the tap outside the drawer. Rendered only when open so it
+          can't swallow clicks on desktop. */}
+      {navOpen && (
+        <div className="scrim" onClick={() => setNavOpen(false)} aria-hidden="true" />
+      )}
+
+      <aside className={`sidebar${navOpen ? " open" : ""}`}>
         <div className="pane-tabs" role="tablist">
           <button
             role="tab"
