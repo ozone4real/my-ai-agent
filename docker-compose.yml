@@ -117,6 +117,11 @@ services:
       # Cookies and site data survive a restart, so a session established once
       # isn't thrown away on every deploy.
       - chrome-profile:/profile
+      # The agent's sandbox, at the same path it sees. `upload_file` hands Chrome
+      # a path over CDP and Chrome opens it itself — so a file the agent writes
+      # is unreachable unless the browser can see it too. Read-only: uploading
+      # only needs reads, and a page should never be able to write in here.
+      - ./workspace:/workspace:ro
     ports:
       # 127.0.0.1 only — never expose an unauthenticated VNC on a public host.
       - "127.0.0.1:${CHROME_VNC_PORT:-5900}:5900"

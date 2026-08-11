@@ -48,6 +48,10 @@ world is not.
   everyone's.
 - Close every page you open, even on failure. Pages you leave behind stay in
   `list_pages` for every later run.
+- To upload a file through a page, write it inside the filesystem sandbox first
+  and pass that path to `upload_file`. The browser reads the path itself, and
+  the sandbox is the only directory it shares with you — a file anywhere else
+  does not exist as far as it is concerned.
 - If a site blocks you with a bot check, a login wall or a CAPTCHA, stop and
   tell the user what you hit. Do not keep retrying and do not try to work around
   it.
