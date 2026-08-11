@@ -1,8 +1,13 @@
 import { Job, Worker } from "bullmq"
 import ApplicationJob, { JobQueueName } from "../jobs/application_job.js"
 import AgenticJob from "../jobs/agentic_job.js"
+import CompactTranscriptsJob from "../jobs/compact_transcripts_job.js"
 
-const JOBS: Record<string, typeof ApplicationJob> = { agentic_job: AgenticJob }
+// Keyed by the job name BullMQ stores, which is underscore(ClassName).
+const JOBS: Record<string, typeof ApplicationJob> = {
+  agentic_job: AgenticJob,
+  compact_transcripts_job: CompactTranscriptsJob,
+}
 
 
 export default abstract class ApplicationWorker {

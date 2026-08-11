@@ -18,9 +18,9 @@ export default class AgenticJob extends ApplicationJob {
     const task = await TaskModel.findById(job.data.taskId)
     if(!task) return
 
-    // Read the previous run BEFORE inserting this one's row, so the query
-    // can't match the record we are about to create.
-    const context = await this.previousTranscript(task._id)
+    // Read prior runs BEFORE inserting this one's row, so the query can't match
+    // the record we are about to create.
+    const context = await this.previousTranscripts(task._id)
 
     const taskRun = await TaskRunModel.create({ task: task._id })
     const agent = await Agent.withSettings()
@@ -46,33 +46,35 @@ export default class AgenticJob extends ApplicationJob {
   }
 
   /**
-   * The last finished run's transcript, so a repeating task isn't starting cold.
+   * Every finished run's transcript, oldest first, so a repeating task carries
+   * its whole history rather than only the last attempt.
    *
    * Failed runs count — "last time this errored on X" is worth having.
    * `in_progress` is skipped: a concurrent run, or one that died mid-flight.
-   * Best-effort; a corrupt transcript yields no context rather than failing.
+   * Best-effort; a corrupt transcript is skipped rather than failing the run.
    *
-   * One-step lookback, not a chain: an agent's stored history holds only its
-   * own turns, so replayed context doesn't compound.
+   * Each stored transcript holds only that run's own turns, so concatenating
+   * them doesn't duplicate anything. Old ones are replaced by summaries —
+   * see CompactTranscriptsJob — which is what keeps this from growing forever.
    */
-  private async previousTranscript(taskId: Types.ObjectId): Promise<AgentMessage[]> {
-    const previous = await TaskRunModel.findOne({
+  private async previousTranscripts(taskId: Types.ObjectId): Promise<AgentMessage[]> {
+    const runs = await TaskRunModel.find({
       task: taskId,
       status: { $in: AgenticJob.FINISHED },
+      transcript: { $nin: [null, ""] },
     })
-      .sort({ endedAt: -1, _id: -1 })
+      // Ascending: the most recent run ends up nearest the prompt.
+      .sort({ endedAt: 1, _id: 1 })
       .lean()
 
-    if (!previous?.transcript) return []
-
-    try {
-      const parsed = JSON.parse(previous.transcript)
-      return Array.isArray(parsed) ? (parsed as AgentMessage[]) : []
-    } catch {
-      console.warn(
-        `Task run ${previous._id} has an unreadable transcript; running without it`
-      )
-      return []
-    }
+    return runs.flatMap((run) => {
+      try {
+        const parsed = JSON.parse(run.transcript!)
+        return Array.isArray(parsed) ? (parsed as AgentMessage[]) : []
+      } catch {
+        console.warn(`Task run ${run._id} has an unreadable transcript; skipping it`)
+        return []
+      }
+    })
   }
 }
