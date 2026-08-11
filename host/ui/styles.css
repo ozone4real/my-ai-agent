@@ -345,6 +345,97 @@ body {
   word-break: break-word;
 }
 
+/* Markdown output. `pre-wrap` is inherited from .content and would turn every
+   newline in the source into a visible blank line, so it is reset here — the
+   rendered elements carry their own spacing. <pre> opts back in. */
+.markdown {
+  white-space: normal;
+}
+
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown blockquote,
+.markdown table {
+  margin: 0 0 0.75em;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: 1.2em 0 0.5em;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+.markdown h1 { font-size: 1.3em; }
+.markdown h2 { font-size: 1.18em; }
+.markdown h3 { font-size: 1.07em; }
+.markdown h4 { font-size: 1em; }
+
+.markdown ul,
+.markdown ol { padding-left: 1.4em; }
+.markdown li { margin: 0.2em 0; }
+.markdown li > p { margin: 0; }
+
+.markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  padding: 0.12em 0.35em;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.16);
+}
+
+.markdown pre {
+  /* Long lines scroll inside the block rather than widening the whole chat. */
+  overflow-x: auto;
+  padding: 0.75em 0.9em;
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.12);
+  white-space: pre;
+  margin: 0 0 0.75em;
+}
+
+.markdown pre code {
+  padding: 0;
+  background: none;
+  font-size: 0.88em;
+}
+
+.markdown blockquote {
+  padding-left: 0.9em;
+  border-left: 3px solid rgba(127, 127, 127, 0.35);
+  opacity: 0.9;
+}
+
+.markdown table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  padding: 0.35em 0.6em;
+  text-align: left;
+}
+
+.markdown th { font-weight: 600; }
+
+.markdown hr {
+  border: 0;
+  border-top: 1px solid rgba(127, 127, 127, 0.3);
+  margin: 1em 0;
+}
+
+.markdown img { max-width: 100%; }
+
 /* The single live line shown while the agent works. */
 .status {
   display: flex;

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
+import Markdown from "./Markdown";
 import {
   deleteConversation,
   deleteTask,
@@ -692,7 +693,13 @@ export function App() {
                       </div>
                     )}
 
-                    {m.content && <div className="content">{m.content}</div>}
+                    {/* Only the agent writes markdown; a user's message stays
+                        literal, so stray *asterisks* aren't eaten. */}
+                    {m.content && (
+                      <div className="content">
+                        {m.role === "assistant" ? <Markdown>{m.content}</Markdown> : m.content}
+                      </div>
+                    )}
 
                     {/* Quiet footnote once the reply has landed. */}
                     {!m.status && m.content && m.steps > 0 && (
