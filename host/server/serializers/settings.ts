@@ -4,7 +4,7 @@
 // one of what may be changed, shared by every caller so they can't drift.
 
 import { z } from "zod";
-import { ModelType } from "../agents/index.js";
+import { ModelType } from "../agents/models.js";
 import { MODEL_CHOICES, type SettingsDocument } from "../models/settings.js";
 
 export const settingsShape = z.object({

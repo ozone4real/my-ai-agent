@@ -30,6 +30,11 @@ await build({
   target: "node22",
   format: "esm",
   packages: "external",
+  // Without this, esbuild inlines `await import(...)` into the same file and
+  // hoists that module's imports to the top, so a lazy import still loads
+  // eagerly. Splitting emits it as its own chunk — that is what keeps the agent
+  // runtime out of the app MCP server, which never runs an agent.
+  splitting: true,
   sourcemap: true,
   logLevel: "info",
 });

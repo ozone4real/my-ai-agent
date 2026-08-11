@@ -3,7 +3,7 @@
 
 import mongoose from "mongoose";
 import type { Model, InferSchemaType, HydratedDocument } from "mongoose";
-import { ModelType } from "../agents/index.js";
+import { ModelType } from "../agents/models.js";
 
 /** The one and only settings document. */
 const SINGLETON_KEY = "app";

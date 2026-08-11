@@ -7,7 +7,6 @@ import type {
   HydratedDocument,
 } from "mongoose";
 import { CronExpressionParser } from "cron-parser";
-import AgenticJob from "../jobs/agentic_job.js";
 import ApplicationJob from "../jobs/application_job.js";
 import { underscore } from "inflection";
 
@@ -71,6 +70,11 @@ TaskSchema.pre('save', function () {
 });
 
 TaskSchema.post('save', async function (task: TaskDocument) {
+  // Imported here, not at the top: agentic_job pulls in the whole agent runtime
+  // (LangChain, MCPClient), and the app MCP server imports this model without
+  // ever running an agent.
+  const { default: AgenticJob } = await import("../jobs/agentic_job.js")
+
   try {
     await ApplicationJob.withRedisTimeout(new AgenticJob().queue.upsertJobScheduler(
       String(task._id),
@@ -110,6 +114,7 @@ TaskSchema.post('save', async function (task: TaskDocument) {
  * paths. Bulk `deleteMany` does NOT run this and still orphans schedulers.
  */
 TaskSchema.post('deleteOne', { document: true, query: false }, async function (this: TaskDocument) {
+  const { default: AgenticJob } = await import("../jobs/agentic_job.js")
   await ApplicationJob.withRedisTimeout(
     new AgenticJob().queue.removeJobScheduler(String(this._id))
   )
