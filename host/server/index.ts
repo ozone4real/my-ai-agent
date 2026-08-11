@@ -11,6 +11,7 @@ import express, {
 } from "express";
 import { Agent } from "./agents";
 import { connectDB } from "./db";
+import { basicAuth } from "./middleware/basic_auth.js";
 import { reconcileTaskSchedulers } from "./jobs/reconcile_schedulers.js";
 import router from "./routes"
 import SseStream from "./services/sse_stream";
@@ -35,6 +36,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 app.get("/health", (_req: Request, res: Response) => {
   res.json({ ok: true, stub: true });
 });
+
+// Everything below is authenticated — the API and the UI it serves. Registered
+// after the CORS block so preflights still get their 204, and after /health so
+// kamal-proxy can check the app without credentials.
+app.use(basicAuth);
 
 // /api only — a root mount would answer the UI's own routes (/tasks,
 // /conversations/:id) with JSON before the SPA catch-all sees them.
