@@ -27,6 +27,10 @@ x-node-service: &node-service
     CHROME_HOST: chrome
     CHROME_PORT: "9223"
     AGENT_FILESYSTEM_ROOT: /workspace
+    # Shell commands default to the sandbox too. Without this they run in /app,
+    # so a generated file lands outside the filesystem tool's reach and outside
+    # the only directory Chrome shares — which breaks browser uploads.
+    AGENT_CWD: /workspace
   volumes:
     # The filesystem MCP server's sandbox, and what the shell tool sees.
     - ./workspace:/workspace

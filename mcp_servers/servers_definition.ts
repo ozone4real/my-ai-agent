@@ -51,6 +51,14 @@ export default {
       // tools, so each agent addresses its own page.
       "--experimentalPageIdRouting",
     ],
+    // Without a negotiated root, chrome-devtools-mcp confines file paths to the
+    // OS temp directory, so `upload_file` rejects anything in the sandbox with
+    // "not within any of the configured workspace roots".
+    //
+    // Advertising the root beats `--allowUnrestrictedPaths`, which lifts the
+    // restriction entirely — the agent could then upload /app/.env, or any
+    // other file the process can read, into a web form.
+    roots: [{ uri: `file://${FILESYSTEM_ROOT}`, name: "workspace" }],
   },
   brevo: {
     command: "npx",
