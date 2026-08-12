@@ -24,7 +24,11 @@ export default class AgenticJob extends ApplicationJob {
     const context = await this.previousTranscripts(task._id)
 
     const taskRun = await TaskRunModel.create({ task: task._id })
-    const agent = await Agent.withSettings()
+    // Nothing here consumes tokens as they arrive, and a streamed response body
+    // held open for a whole generation is what gets cut mid-flight
+    // ("TypeError: terminated", cause ECONNRESET) — a failure the SDK cannot
+    // retry once the stream has started. A single response can be retried.
+    const agent = await Agent.withSettings({ streaming: false })
     // Default failed: anything that escapes the try isn't a success.
     let status: Status = "failed"
 

@@ -81,7 +81,28 @@ export interface AgentOptions {
   preferredName?: string
   /** Standing instructions from Settings, added to the system message. */
   userInstructions?: string
+  /**
+   * Whether the model call itself is streamed. Defaults to true.
+   *
+   * This is the HTTP request, not `Agent.streamEvents` — LangChain sends
+   * `stream: true` whenever the model is built with it, and consumes the SSE
+   * internally even for `run()`. A long-lived response body is what gets cut by
+   * a mid-stream reset ("TypeError: terminated", cause ECONNRESET), and the SDK
+   * cannot retry a stream that has already begun. Turn it off where nothing
+   * consumes the tokens as they arrive.
+   */
+  streaming?: boolean
 }
+
+/**
+ * Per-request ceiling on a single model call.
+ *
+ * Without one, a stalled request hangs until the socket eventually dies, which
+ * can strand an agent run for as long as the network takes to notice. Generous
+ * because one call carries the whole tool catalogue plus up to maxTokens of
+ * output — this is a backstop, not a latency target.
+ */
+const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? 600_000)
 
 /**
  * Operating instructions, read once at startup.
@@ -139,6 +160,7 @@ export class Agent {
       preferredName: options.preferredName ?? settings.preferredName ?? undefined,
       userInstructions: options.userInstructions ?? settings.instructions ?? undefined,
       conversationId: options.conversationId,
+      streaming: options.streaming,
     })
   }
 
@@ -147,6 +169,7 @@ export class Agent {
     conversationId,
     preferredName,
     userInstructions,
+    streaming = true,
   }: AgentOptions = {}) {
     // const llm = new ChatAnthropic({
     //   model,
@@ -159,7 +182,8 @@ export class Agent {
       model,
       maxTokens: 10000,
       apiKey: process.env.DEEP_SEEK_API_KEY,
-      streaming: true
+      streaming,
+      timeout: LLM_TIMEOUT_MS
     })
 
     this.llm = llm
