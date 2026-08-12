@@ -8,7 +8,6 @@ import type {
 } from "mongoose";
 import { CronExpressionParser } from "cron-parser";
 import ApplicationJob from "../jobs/application_job.js";
-import { underscore } from "inflection";
 
 export const CREATORS = ["user", "assistant"] as const;
 
@@ -80,7 +79,7 @@ TaskSchema.post('save', async function (task: TaskDocument) {
       String(task._id),
       { pattern: task.schedule, ...(task.limit ? { limit: task.limit } : {}) },
       {
-        name: underscore(AgenticJob.name),
+        name: AgenticJob.jobName,
         // Without this the job fires with `data: {}`, so the worker looks up
         // `undefined`, finds nothing, and the task silently never runs.
         data: { taskId: String(task._id) },

@@ -3,11 +3,11 @@ import ApplicationJob, { JobQueueName } from "../jobs/application_job.js"
 import AgenticJob from "../jobs/agentic_job.js"
 import CompactTranscriptsJob from "../jobs/compact_transcripts_job.js"
 
-// Keyed by the job name BullMQ stores, which is underscore(ClassName).
-const JOBS: Record<string, typeof ApplicationJob> = {
-  agentic_job: AgenticJob,
-  compact_transcripts_job: CompactTranscriptsJob,
-}
+// Keyed off each class's own `jobName`, so the registry can't drift from what
+// the scheduler writes.
+const JOBS: Record<string, typeof ApplicationJob> = Object.fromEntries(
+  [AgenticJob, CompactTranscriptsJob].map((job) => [job.jobName, job])
+)
 
 
 export default abstract class ApplicationWorker {

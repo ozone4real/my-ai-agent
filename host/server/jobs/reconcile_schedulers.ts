@@ -4,7 +4,6 @@
 // two can't be written together — an outage mid-edit, a bulk deleteMany that
 // bypassed the document hook, or Redis losing its data. Run at startup.
 
-import { underscore } from "inflection";
 import AgenticJob from "./agentic_job.js";
 import { TaskModel } from "../models/task.js";
 
@@ -30,15 +29,19 @@ export async function reconcileTaskSchedulers(): Promise<ReconcileResult> {
     const wanted = { pattern: task.schedule, limit: task.limit ?? undefined };
 
     // BullMQ reports an absent limit as null, the model as undefined.
+    // The name is compared too: a scheduler written under an old job name fires
+    // on time but dispatches to nothing, and comparing only the pattern would
+    // leave that broken scheduler in place forever.
     const matches =
       current?.pattern === wanted.pattern &&
-      (current?.limit ?? undefined) === wanted.limit;
+      (current?.limit ?? undefined) === wanted.limit &&
+      current?.name === AgenticJob.jobName;
 
     if (!matches) {
       await queue.upsertJobScheduler(
         id,
         { pattern: wanted.pattern, ...(wanted.limit ? { limit: wanted.limit } : {}) },
-        { name: underscore(AgenticJob.name), data: { taskId: id } }
+        { name: AgenticJob.jobName, data: { taskId: id } }
       );
       if (current) result.updated++;
       else result.added++;

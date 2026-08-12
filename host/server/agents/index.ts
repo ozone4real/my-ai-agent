@@ -167,7 +167,7 @@ export class Agent {
     this.agent = new MCPAgent({
       llm,
       client: Agent.sharedClient,
-      maxSteps: 100,
+      maxSteps: 200,
       // The only way in: a SystemMessage in `externalHistory` is silently
       // discarded, since that array is filtered to human/AI/tool messages.
       additionalInstructions: this.buildContextInstructions({ conversationId, preferredName, userInstructions }),

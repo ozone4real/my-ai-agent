@@ -1,5 +1,4 @@
 import { Job, JobsOptions, Queue, RepeatOptions } from "bullmq"
-import { underscore } from "inflection"
 
 export enum JobQueueName {
   AGENTS = "agents",
@@ -18,8 +17,21 @@ export default abstract class ApplicationJob {
   protected abstract attempts: number
   static repeat?: RepeatOptions
 
+  /**
+   * The name BullMQ stores on the job, and the key the worker dispatches on.
+   *
+   * Declared explicitly rather than derived from the class name. esbuild
+   * renames self-referencing classes — the production bundle contains
+   * `class _AgenticJob` — so `underscore(this.constructor.name)` produced
+   * "_agentic_job" there while the worker still looked up "agentic_job". The
+   * lookup missed, `process()` returned silently, and every scheduled run
+   * completed having done nothing. Only in production; tsx doesn't rename.
+   */
+  static jobName: string
+
   async enqueue(jobData: any, jobOptions: JobsOptions = {}): Promise<void> {
-    await this.queue.add(underscore(this.constructor.name), jobData, jobOptions)
+    const { jobName } = this.constructor as typeof ApplicationJob
+    await this.queue.add(jobName, jobData, jobOptions)
   }
 
   get queue(): Queue {

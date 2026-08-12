@@ -30,6 +30,10 @@ await build({
   target: "node22",
   format: "esm",
   packages: "external",
+  // Preserve original class/function names. esbuild otherwise renames
+  // self-referencing classes (`class _AgenticJob`), and anything reading
+  // `.name` at runtime silently gets the mangled version.
+  keepNames: true,
   // Without this, esbuild inlines `await import(...)` into the same file and
   // hoists that module's imports to the top, so a lazy import still loads
   // eagerly. Splitting emits it as its own chunk — that is what keeps the agent

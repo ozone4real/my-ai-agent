@@ -6,7 +6,6 @@
 // and summarises everything older.
 
 import { Job, RepeatOptions } from "bullmq";
-import { underscore } from "inflection";
 import type { Types } from "mongoose";
 import { ChatDeepSeek } from "@langchain/deepseek";
 import ApplicationJob, { JobQueueName } from "./application_job.js";
@@ -16,6 +15,7 @@ import { ModelType } from "../agents/models.js";
 type Status = (typeof STATUSES)[number];
 
 export default class CompactTranscriptsJob extends ApplicationJob {
+  static jobName = "compact_transcripts_job";
   public queueName = JobQueueName.DEFAULT;
   public attempts = 3;
 
@@ -62,7 +62,7 @@ export default class CompactTranscriptsJob extends ApplicationJob {
       job.queue.upsertJobScheduler(
         CompactTranscriptsJob.SCHEDULER_KEY,
         CompactTranscriptsJob.repeat,
-        { name: underscore(CompactTranscriptsJob.name), data: {} }
+        { name: CompactTranscriptsJob.jobName, data: {} }
       )
     );
   }

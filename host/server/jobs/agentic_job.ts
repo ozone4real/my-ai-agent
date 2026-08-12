@@ -8,6 +8,7 @@ import { STATUSES, TaskRunModel } from "../models/task_run.js";
 type Status = (typeof STATUSES)[number]
 
 export default class AgenticJob extends ApplicationJob {
+  static jobName = "agentic_job"
   public queueName = JobQueueName.AGENTS
   public attempts = 10
 
