@@ -127,6 +127,25 @@ export async function getTask(
   return (await res.json()) as TaskWithRuns;
 }
 
+/** The task fields a client may change. */
+export interface TaskUpdate {
+  prompt?: string;
+  schedule?: string;
+  /** null clears the cap; undefined leaves it alone. */
+  limit?: number | null;
+}
+
+/** Updates a task. Omitted fields are left as they are. */
+export async function updateTask(taskId: string, update: TaskUpdate): Promise<Task> {
+  const res = await fetch(`${TASKS_ENDPOINT}/${encodeURIComponent(taskId)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(update),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as Task;
+}
+
 /** Deletes the task and its runs. Returns how many runs went with it. */
 export async function deleteTask(taskId: string): Promise<number> {
   const res = await fetch(`${TASKS_ENDPOINT}/${encodeURIComponent(taskId)}`, {

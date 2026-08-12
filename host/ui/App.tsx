@@ -9,8 +9,10 @@ import {
   listConversations,
   listTasks,
   sendChat,
+  updateTask,
   type ConversationSummary,
   type Task,
+  type TaskUpdate,
   type TaskWithRuns,
 } from "./api";
 import { describeStep } from "./steps";
@@ -218,6 +220,8 @@ export function App() {
   const [activeTask, setActiveTask] = useState<TaskWithRuns | null>(null);
   const [loadingTask, setLoadingTask] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [savingTask, setSavingTask] = useState(false);
+  const [taskSaveError, setTaskSaveError] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   /**
    * Which thread is in `messages`. The load effect skips when it matches the
@@ -318,6 +322,26 @@ export function App() {
       setDeletingId(null);
     }
   }, [navigate]);
+
+  const saveTask = useCallback(async (taskId: string, update: TaskUpdate) => {
+    setSavingTask(true);
+    setTaskSaveError(null);
+    try {
+      const saved = await updateTask(taskId, update);
+      // Keep the detail view's runs — the response carries the task alone.
+      setActiveTask((current) =>
+        current && current.id === taskId ? { ...current, ...saved } : current
+      );
+      // And the sidebar row, so its schedule doesn't go stale.
+      setTasks((current) => current.map((t) => (t.id === taskId ? { ...t, ...saved } : t)));
+    } catch (err) {
+      // Shown in the form: a rejected cron is the common case and belongs
+      // next to the field, not in the sidebar.
+      setTaskSaveError((err as Error)?.message ?? "Could not save task");
+    } finally {
+      setSavingTask(false);
+    }
+  }, []);
 
   const removeConversation = useCallback(
     async (conversationId: string) => {
@@ -680,6 +704,9 @@ export function App() {
                 task={activeTask}
                 deleting={deletingId === activeTask.id}
                 onDelete={() => void removeTask(activeTask.id)}
+                onSave={(update) => void saveTask(activeTask.id, update)}
+                saving={savingTask}
+                saveError={taskSaveError}
               />
             )}
           </div>

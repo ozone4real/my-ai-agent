@@ -95,16 +95,6 @@ export interface AgentOptions {
 }
 
 /**
- * Per-request ceiling on a single model call.
- *
- * Without one, a stalled request hangs until the socket eventually dies, which
- * can strand an agent run for as long as the network takes to notice. Generous
- * because one call carries the whole tool catalogue plus up to maxTokens of
- * output — this is a backstop, not a latency target.
- */
-const LLM_TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS ?? 600_000)
-
-/**
  * Operating instructions, read once at startup.
  *
  * Loud on failure rather than silently running an agent with no rules — the
@@ -182,8 +172,7 @@ export class Agent {
       model,
       maxTokens: 10000,
       apiKey: process.env.DEEP_SEEK_API_KEY,
-      streaming,
-      timeout: LLM_TIMEOUT_MS
+      streaming
     })
 
     this.llm = llm

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { Transcript } from "./Transcript";
-import type { TaskRun, TaskWithRuns } from "./api";
+import type { TaskRun, TaskUpdate, TaskWithRuns } from "./api";
 import { useArmedAction } from "./useArmedAction";
 
 /** Full timestamp — a run's history is exactly where the date matters. */
@@ -46,15 +46,53 @@ export function TaskDetail({
   task,
   onDelete,
   deleting,
+  onSave,
+  saving,
+  saveError,
 }: {
   task: TaskWithRuns;
   onDelete: () => void;
   deleting: boolean;
+  onSave: (update: TaskUpdate) => void;
+  saving: boolean;
+  saveError: string | null;
 }) {
   // Keyed on the task id so an armed button can't carry to another record.
   const { armed: confirming, trigger: arm } = useArmedAction(onDelete, task.id);
   // Prompts are instructions, not titles; clamp so the rest stays above the fold.
   const [promptOpen, setPromptOpen] = useState(false);
+
+  const [editing, setEditing] = useState(false);
+  const [prompt, setPrompt] = useState(task.prompt);
+  const [schedule, setSchedule] = useState(task.schedule);
+  // Kept as a string so the field can be emptied — "" means unlimited.
+  const [limit, setLimit] = useState(task.limit === null ? "" : String(task.limit));
+
+  // Re-seed when a different task is shown, or after a save changes the values.
+  useEffect(() => {
+    setPrompt(task.prompt);
+    setSchedule(task.schedule);
+    setLimit(task.limit === null ? "" : String(task.limit));
+  }, [task.id, task.prompt, task.schedule, task.limit]);
+
+  const parsedLimit = limit.trim() === "" ? null : Number(limit);
+  const limitValid =
+    parsedLimit === null || (Number.isInteger(parsedLimit) && parsedLimit > 0);
+
+  // Send only what changed: the endpoint reads an absent field as "leave alone",
+  // so this can't clobber a value edited elsewhere in the meantime.
+  const changes: TaskUpdate = {};
+  if (prompt !== task.prompt) changes.prompt = prompt;
+  if (schedule !== task.schedule) changes.schedule = schedule;
+  if (parsedLimit !== task.limit) changes.limit = parsedLimit;
+  const dirty = Object.keys(changes).length > 0;
+
+  const cancel = () => {
+    setPrompt(task.prompt);
+    setSchedule(task.schedule);
+    setLimit(task.limit === null ? "" : String(task.limit));
+    setEditing(false);
+  };
 
   const succeeded = task.runs.filter((r) => r.status === "success").length;
   const failed = task.runs.filter((r) => r.status === "failed").length;
@@ -77,14 +115,86 @@ export function TaskDetail({
             <span>created by {task.creator}</span>
           </div>
         </div>
-        <button
-          className={`btn danger ${confirming ? "confirming" : ""}`}
-          onClick={arm}
-          disabled={deleting}
-        >
-          {deleting ? "Deleting…" : confirming ? "Confirm delete" : "Delete"}
-        </button>
+        <div className="task-actions">
+          {!editing && (
+            <button className="btn" onClick={() => setEditing(true)} disabled={deleting}>
+              Edit
+            </button>
+          )}
+          <button
+            className={`btn danger ${confirming ? "confirming" : ""}`}
+            onClick={arm}
+            disabled={deleting}
+          >
+            {deleting ? "Deleting…" : confirming ? "Confirm delete" : "Delete"}
+          </button>
+        </div>
       </div>
+
+      {editing && (
+        <form
+          className="task-edit"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (dirty && limitValid) onSave(changes);
+          }}
+        >
+          <div className="field">
+            <label className="field-label" htmlFor="task-prompt">Prompt</label>
+            <span className="field-hint">
+              A scheduled run has no conversation behind it, so this has to stand alone.
+            </span>
+            <textarea
+              id="task-prompt"
+              rows={8}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+            />
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor="task-schedule">Schedule</label>
+            <span className="field-hint">
+              Cron, in the server's timezone — <code>35 2 * * *</code> is 02:35 daily.
+            </span>
+            <input
+              id="task-schedule"
+              value={schedule}
+              onChange={(e) => setSchedule(e.target.value)}
+            />
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor="task-limit">Run limit</label>
+            <span className="field-hint">Leave empty to run forever.</span>
+            <input
+              id="task-limit"
+              type="number"
+              min={1}
+              step={1}
+              value={limit}
+              placeholder="unlimited"
+              onChange={(e) => setLimit(e.target.value)}
+            />
+            {!limitValid && (
+              <span className="field-error">Must be a whole number above zero.</span>
+            )}
+          </div>
+
+          {saveError && <div className="error">{saveError}</div>}
+
+          <div className="task-edit-actions">
+            <button className="btn new" type="submit" disabled={!dirty || !limitValid || saving}>
+              {saving ? "Saving…" : "Save changes"}
+            </button>
+            <button className="btn" type="button" onClick={cancel} disabled={saving}>
+              Cancel
+            </button>
+            {/* The cron only takes effect once the save reaches Redis. */}
+            {dirty && !saving && <span className="field-hint">Unsaved changes</span>}
+          </div>
+        </form>
+      )}
 
       {confirming && !deleting && (
         <p className="task-warning">
