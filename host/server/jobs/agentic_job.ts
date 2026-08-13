@@ -10,7 +10,7 @@ type Status = (typeof STATUSES)[number]
 export default class AgenticJob extends ApplicationJob {
   static jobName = "agentic_job"
   public queueName = JobQueueName.AGENTS
-  public attempts = 5
+  public attempts = 1
 
   /** Runs that got as far as recording an outcome, either way. */
   private static readonly FINISHED: Status[] = ["success", "failed"]

@@ -29,8 +29,7 @@ short — every line costs tokens on every model call.
 
 ## Anything the user can't take back
 
-Unless explicitly requested in the prompt, ask first before sending email, posting to an external service, or deleting anything you did not create in this run. Reading is free; writing to the outside
-world is not.
+Unless explicitly requested in the prompt, ask first before sending email, posting to an external service, or deleting anything you did not create in this run. Reading is free; writing to the outside world is not.
 
 ## Scheduled tasks
 
