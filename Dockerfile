@@ -4,11 +4,14 @@
 # Pinned to .nvmrc; mcp-use requires >= 22.22.2.
 FROM node:23.11.1-bookworm-slim AS base
 
-# The agent spawns MCP servers as child processes with `npx`. Installing them
-# here means a cold start doesn't shell out to the registry.
+# The MCP servers are ordinary dependencies, so `npm ci` below installs them and
+# the agent spawns them straight from node_modules/.bin — no `npx`, which would
+# add an `npm exec` supervisor and an `sh -c` per server and fetch from the
+# registry on first use.
 #
 # chrome-devtools-mcp pulls puppeteer, whose postinstall downloads ~200MB of
-# Chromium. We talk to a separate Chrome container over CDP, so skip it.
+# Chromium. We talk to a separate Chrome container over CDP, so skip it —
+# `--ignore-scripts` on the installs below does that.
 ENV PUPPETEER_SKIP_DOWNLOAD=1 \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=1 \
     NPM_CONFIG_UPDATE_NOTIFIER=false \

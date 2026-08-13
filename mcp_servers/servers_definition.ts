@@ -1,6 +1,24 @@
 // The MCP servers the agent connects to. Hosts and paths are env-driven so the
 // same definition works natively and in a container.
 
+import path from "node:path";
+
+/**
+ * An installed MCP server's entry point.
+ *
+ * Run directly rather than through `npx`, which costs two extra processes per
+ * server: `npm exec` stays resident forwarding stdio (~100-150MB of Node
+ * running npm), and it launches the real binary through `sh -c`. Across four
+ * servers that was ~500MB of supervision — more than the servers themselves —
+ * on top of a registry round-trip at every cold start.
+ *
+ * Resolved from this module's directory so it works from source
+ * (mcp_servers/ -> ../node_modules) and from the bundle (dist/ ->
+ * ../node_modules) without knowing the working directory.
+ */
+const serverBin = (name: string) =>
+  path.resolve(import.meta.dirname, "../node_modules/.bin", name);
+
 /**
  * Where the filesystem server may read and write.
  *
@@ -27,8 +45,8 @@ export default {
     url: process.env.APP_MCP_URL ?? "http://localhost:8000/mcp",
   },
   filesystem: {
-    command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-filesystem", FILESYSTEM_ROOT],
+    command: "node",
+    args: [serverBin("mcp-server-filesystem"), FILESYSTEM_ROOT],
   },
   // Spawned as a child process. From source that means running the TS through
   // tsx; from a build it is a plain JS file, so the entry is env-driven.
@@ -36,13 +54,11 @@ export default {
     ? { command: "node", args: [process.env.COMMAND_EXECUTOR_ENTRY] }
     : { command: "npx", args: ["tsx", "mcp_servers/command_executor.ts"] },
   chromedevtools: {
-    command: "npx",
+    command: "node",
     args: [
-      "-y",
-      // Pinned, not @latest: the page-routing flag below is experimental, so an
-      // upgrade that renames or drops it would silently take the isolation with
-      // it. Bump deliberately and re-check the flag.
-      "chrome-devtools-mcp@1.7.0",
+      // Version now comes from package.json rather than the spawn line. The
+      // page-routing flag below is experimental, so re-check it on any bump.
+      serverBin("chrome-devtools-mcp"),
       `--browser-url=${CHROME_URL}`,
       "--ignoreDefaultChromeArg=--enable-automation",
       // One connector now serves every concurrent agent, so the default single
@@ -50,6 +66,9 @@ export default {
       // snapshot. This makes pageId a required argument on all 27 page-scoped
       // tools, so each agent addresses its own page.
       "--experimentalPageIdRouting",
+      // Opts out of Google usage statistics, which otherwise run in a separate
+      // watchdog process costing ~140MB.
+      "--usageStatistics=false",
     ],
     // Without a negotiated root, chrome-devtools-mcp confines file paths to the
     // OS temp directory, so `upload_file` rejects anything in the sandbox with
@@ -61,9 +80,9 @@ export default {
     roots: [{ uri: `file://${FILESYSTEM_ROOT}`, name: "workspace" }],
   },
   brevo: {
-    command: "npx",
+    command: "node",
     args: [
-      "mcp-remote",
+      serverBin("mcp-remote"),
       "https://mcp.brevo.com/v1/brevo/mcp",
       "--header",
       "Authorization: Bearer ${BREVO_MCP_TOKEN}"
@@ -75,8 +94,8 @@ export default {
   // Local SearXNG (`npm run search:up`). If it's down, searches fail but the
   // agent's other tools are unaffected.
   websearch: {
-    command: "npx",
-    args: ["-y", "mcp-searxng"],
+    command: "node",
+    args: [serverBin("mcp-searxng")],
     // Operator caps, not defaults — mcp-searxng clamps the model's requests.
     env: {
       SEARXNG_URL: process.env.SEARXNG_URL ?? "http://localhost:8888",
