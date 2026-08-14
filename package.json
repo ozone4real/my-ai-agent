@@ -38,7 +38,8 @@
     "start": "mcp-use start",
     "deploy": "mcp-use deploy",
     "postinstall": "mcp-use typecheck || exit 0",
-    "build:server": "node build.mjs"
+    "build:server": "node build.mjs",
+    "typecheck": "tsc --noEmit -p host/tsconfig.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.json"
   },
   "engines": {
     "node": ">=23.11.1"

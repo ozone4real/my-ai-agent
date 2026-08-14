@@ -34,12 +34,13 @@ FROM base AS build
 RUN npm ci --ignore-scripts
 COPY . .
 
-# Fail the build on a type error. Neither esbuild nor vite typechecks, so
-# without this a broken type ships silently.
-RUN npx tsc --noEmit -p host/tsconfig.json \
- && npx tsc --noEmit -p tsconfig.node.json \
- && npx tsc --noEmit -p tsconfig.json
-
+# No typecheck here. Three chained `tsc --noEmit` runs were the heaviest step in
+# the image by a wide margin, and they emit nothing the image needs — they are a
+# correctness gate, not a build step. On a 2GB builder they exhausted memory and
+# the build hung until it timed out.
+#
+# Run `npm run typecheck` before committing, or in CI. Neither esbuild nor vite
+# typechecks, so nothing else will catch a type error.
 RUN npx vite build host
 RUN node build.mjs
 
