@@ -2,7 +2,7 @@ import { Job } from "bullmq";
 import type { Types } from "mongoose";
 import ApplicationJob, { JobQueueName } from "./application_job.js";
 import { TaskModel } from "../models/task.js";
-import { Agent, type AgentMessage } from "../agents/index.js";
+import { Agent, type AgentMessage, type AgentToolCall } from "../agents/index.js";
 import { STATUSES, TaskRunModel } from "../models/task_run.js";
 
 type Status = (typeof STATUSES)[number]
@@ -19,13 +19,16 @@ export default class AgenticJob extends ApplicationJob {
   private static readonly REPLAYED_RUNS = 5
 
   /**
-   * Of those, how many must be successful runs.
+   * Opens the note left on a run that ended by throwing.
    *
-   * A run of bad nights would otherwise fill the whole window with failures and
-   * the agent would lose sight of what a completed run looks like — exactly
-   * when it most needs to know what has already been done.
+   * Load-bearing: a note with nothing after it is all a bare failure has to
+   * say, and replaying "the agent hit a recursion limit" into later runs is
+   * noise at best. {@link isBareFailure} matches on this.
    */
-  private static readonly REPLAYED_SUCCESSES = 2
+  private static readonly FAILURE_NOTE = "This run did not finish."
+
+  /** Introduces the work a failed run got through before it died. */
+  private static readonly STEPS_HEADING = "Before failing, it took these steps:"
 
   /**
    * After this, an `in_progress` run is treated as abandoned.
@@ -62,12 +65,21 @@ export default class AgenticJob extends ApplicationJob {
     let status: Status = "failed"
     let failure: string | null = null
 
+    // Streamed rather than `run()` so the steps are in hand when it throws.
+    // mcp-use commits the turn's messages to history in one batch after the
+    // loop, so a run that dies leaves `serializedConversationHistory` empty —
+    // and a run can die *after* doing its work, as one did after emailing a job
+    // application. Collecting steps as they arrive is the only record of that.
+    const steps: AgentToolCall[] = []
+
     try {
-      await agent.run(task.prompt, context)
+      for await (const payload of agent.stream(task.prompt, context)) {
+        if (payload.phase === "working") AgenticJob.recordStep(steps, payload.value)
+      }
       status = "success"
     } catch (error) {
       failure = error instanceof Error ? error.message : String(error)
-      console.error(`Task ${task._id} run failed:`, error)
+      console.error(`Task ${task._id} run failed after ${steps.length} step(s):`, error)
       // Rethrown so BullMQ retries; the run row is written first regardless.
       throw error
     } finally {
@@ -76,9 +88,27 @@ export default class AgenticJob extends ApplicationJob {
       // are shared process-wide and closing them ends every in-flight run.
       await taskRun.updateOne({
         status,
-        transcript: JSON.stringify(this.transcriptFor(agent, failure)),
+        transcript: JSON.stringify(this.transcriptFor(agent, failure, steps)),
       })
     }
+  }
+
+  /**
+   * Append a step, unless it repeats one already seen.
+   *
+   * The stream re-yields steps it has already emitted — one `echo` produced
+   * five identical payloads in testing — so this keys on the call itself.
+   * A genuine repeat of the same tool with the same arguments collapses too,
+   * which for a record of what a run did is no loss.
+   */
+  private static recordStep(steps: AgentToolCall[], value: unknown): void {
+    const action = (value as { action?: { tool?: string; toolInput?: unknown } })?.action
+    if (!action?.tool) return
+
+    const call = { tool: action.tool, args: action.toolInput }
+    const key = `${call.tool}|${JSON.stringify(call.args ?? null)}`
+    if (steps.some((s) => `${s.tool}|${JSON.stringify(s.args ?? null)}` === key)) return
+    steps.push(call)
   }
 
   /**
@@ -146,9 +176,9 @@ export default class AgenticJob extends ApplicationJob {
    * the window is still reachable — `get-task` returns every run with its
    * transcript.
    *
-   * Failed runs count — "last time this errored on X" is worth having.
-   * `in_progress` is skipped: a concurrent run, or one that died mid-flight.
-   * Best-effort; a corrupt transcript is skipped rather than failing the run.
+   * Failed runs are kept only when they recorded something; see
+   * {@link isBareFailure}. `in_progress` is skipped: a concurrent run, or one
+   * that died mid-flight.
    *
    * Each stored transcript holds only that run's own turns, so concatenating
    * them doesn't duplicate anything.
@@ -157,55 +187,43 @@ export default class AgenticJob extends ApplicationJob {
     const runs = await this.runsToReplay(taskId)
 
     return runs.flatMap((run) => {
-      try {
-        const parsed = JSON.parse(run.transcript!)
-        return Array.isArray(parsed) ? (parsed as AgentMessage[]) : []
-      } catch {
-        console.warn(`Task run ${run._id} has an unreadable transcript; skipping it`)
-        return []
-      }
+      const messages = AgenticJob.parseTranscript(run.transcript!)
+      return AgenticJob.isBareFailure(messages) ? [] : messages
     })
   }
 
-  /** The most recent runs, topped up with successes, oldest first. */
+  /**
+   * A stored transcript as messages.
+   *
+   * Falls back to treating the raw text as one assistant message rather than
+   * discarding the run: these records get edited by hand, and a note pasted in
+   * as plain text is worth more than the nothing a parse failure used to yield.
+   */
+  private static parseTranscript(transcript: string): AgentMessage[] {
+    try {
+      const parsed = JSON.parse(transcript)
+      if (Array.isArray(parsed)) return parsed as AgentMessage[]
+    } catch {
+      // Not JSON — fall through.
+    }
+    return [{ role: "assistant", content: transcript }]
+  }
+
+  /** The most recent finished runs that have a transcript, oldest first. */
   private async runsToReplay(taskId: Types.ObjectId) {
-    const withTranscript = {
+    // No longer tops up with successes: bare failures are dropped in
+    // previousTranscripts, so they can no longer crowd the window.
+    const recent = await TaskRunModel.find({
       task: taskId,
       transcript: { $nin: [null, ""] },
-    }
-
-    const recent = await TaskRunModel.find({
-      ...withTranscript,
       status: { $in: AgenticJob.FINISHED },
     })
       .sort({ endedAt: -1, _id: -1 })
       .limit(AgenticJob.REPLAYED_RUNS)
       .lean()
 
-    const shortfall =
-      AgenticJob.REPLAYED_SUCCESSES - recent.filter((run) => run.status === "success").length
-
-    let selected = recent
-    if (shortfall > 0) {
-      // Reach further back for successes the recent window missed.
-      const successes = await TaskRunModel.find({
-        ...withTranscript,
-        status: "success",
-        _id: { $nin: recent.map((run) => run._id) },
-      })
-        .sort({ endedAt: -1, _id: -1 })
-        .limit(shortfall)
-        .lean()
-
-      // Stay within the cap by giving up the oldest of the recent runs — those
-      // are the failures the successes are being fetched to balance.
-      if (successes.length) {
-        selected = [...recent.slice(0, AgenticJob.REPLAYED_RUNS - successes.length), ...successes]
-      }
-    }
-
     // Ascending: the most recent run ends up nearest the prompt.
-    return selected.sort(
+    return recent.sort(
       (a, b) => new Date(a.endedAt).getTime() - new Date(b.endedAt).getTime()
     )
   }
@@ -219,13 +237,41 @@ export default class AgenticJob extends ApplicationJob {
    * `[]`. Appending the error means the next run learns something from the
    * attempt instead of replaying nothing.
    */
-  private transcriptFor(agent: Agent, failure: string | null): AgentMessage[] {
+  private transcriptFor(
+    agent: Agent,
+    failure: string | null,
+    steps: AgentToolCall[]
+  ): AgentMessage[] {
     const history = agent.serializedConversationHistory
     if (!failure) return history
 
-    return [
-      ...history,
-      { role: "assistant", content: `This run did not finish. It failed with: ${failure}` },
-    ]
+    const note = [`${AgenticJob.FAILURE_NOTE} It failed with: ${failure}`]
+    if (steps.length) {
+      note.push(
+        "",
+        AgenticJob.STEPS_HEADING,
+        ...steps.map((s) => `- ${s.tool} ${JSON.stringify(s.args ?? {})}`),
+        "",
+        "Whether each one took effect is unrecorded; treat them as attempted, not confirmed."
+      )
+    }
+
+    return [...history, { role: "assistant", content: note.join("\n") }]
+  }
+
+  /**
+   * A failed run that recorded nothing but the fact that it failed.
+   *
+   * Replaying "the agent hit a recursion limit" tells the next run nothing and
+   * costs it a slot in the window, so these are skipped. Anything else on a
+   * failed run is kept — including notes added by hand to a run's transcript.
+   */
+  private static isBareFailure(messages: AgentMessage[]): boolean {
+    if (messages.length !== 1) return false
+    const content = String((messages[0] as { content?: unknown })?.content ?? "")
+    return (
+      content.startsWith(AgenticJob.FAILURE_NOTE) &&
+      !content.includes(AgenticJob.STEPS_HEADING)
+    )
   }
 }
