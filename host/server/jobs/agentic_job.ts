@@ -27,6 +27,16 @@ export default class AgenticJob extends ApplicationJob {
    */
   private static readonly REPLAYED_SUCCESSES = 2
 
+  /**
+   * After this, an `in_progress` run is treated as abandoned.
+   *
+   * A run only leaves `in_progress` in its own `finally`, so a worker that is
+   * killed, OOMed or redeployed mid-run leaves the row behind forever. With one
+   * run per task enforced, such a row would block that task permanently, so it
+   * has to be reclaimable. Generous: real runs take minutes, not hours.
+   */
+  private static readonly ABANDONED_AFTER_MS = 3 * 60 * 60 * 1000
+
   async process(job: Job) {
     const task = await TaskModel.findById(job.data.taskId)
     if(!task) return
@@ -35,7 +45,14 @@ export default class AgenticJob extends ApplicationJob {
     // the record we are about to create.
     const context = await this.previousTranscripts(task._id)
 
-    const taskRun = await TaskRunModel.create({ task: task._id })
+    const taskRun = await this.startRun(task._id)
+    // Another run of this task is live. Returning rather than throwing: this is
+    // the constraint working, not a failure, and throwing would retry it.
+    if (!taskRun) {
+      console.warn(`Task ${task._id} already has a run in progress; skipping this one`)
+      return
+    }
+
     // Nothing here consumes tokens as they arrive, and a streamed response body
     // held open for a whole generation is what gets cut mid-flight
     // ("TypeError: terminated", cause ECONNRESET) — a failure the SDK cannot
@@ -62,6 +79,62 @@ export default class AgenticJob extends ApplicationJob {
         transcript: JSON.stringify(this.transcriptFor(agent, failure)),
       })
     }
+  }
+
+  /**
+   * Open a run, or `null` if this task already has one going.
+   *
+   * The uniqueness is the index's, not this method's — two workers racing here
+   * both see no in-progress run, and Mongo rejects the loser's insert.
+   */
+  private async startRun(taskId: Types.ObjectId) {
+    try {
+      return await TaskRunModel.create({ task: taskId })
+    } catch (error) {
+      if (!AgenticJob.isDuplicateRun(error)) throw error
+
+      // Only reclaim once the blocker is old enough to be abandoned rather than
+      // merely slow, then take the slot. A second rejection means a real run
+      // started in between; that one wins.
+      if (!(await this.reapAbandonedRun(taskId))) return null
+      try {
+        return await TaskRunModel.create({ task: taskId })
+      } catch (retryError) {
+        if (AgenticJob.isDuplicateRun(retryError)) return null
+        throw retryError
+      }
+    }
+  }
+
+  private static isDuplicateRun(error: unknown): boolean {
+    return (error as { code?: number })?.code === 11000
+  }
+
+  /** Fail the task's in-progress run if it is old enough to be abandoned. */
+  private async reapAbandonedRun(taskId: Types.ObjectId): Promise<boolean> {
+    const cutoff = new Date(Date.now() - AgenticJob.ABANDONED_AFTER_MS)
+    const result = await TaskRunModel.updateOne(
+      { task: taskId, status: "in_progress", startedAt: { $lt: cutoff } },
+      {
+        status: "failed",
+        transcript: JSON.stringify([
+          {
+            role: "assistant",
+            content:
+              "This run never reported an outcome — the worker stopped before it could. " +
+              "It was closed automatically so the task could run again.",
+          },
+        ]),
+      },
+      // `endedAt` is `updatedAt`; stamping it now would date the run to the
+      // reaping rather than to when it actually ran.
+      { timestamps: false }
+    )
+
+    if (result.modifiedCount) {
+      console.warn(`Task ${taskId}: closed an abandoned run so a new one could start`)
+    }
+    return result.modifiedCount > 0
   }
 
   /**

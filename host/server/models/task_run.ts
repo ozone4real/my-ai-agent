@@ -44,6 +44,29 @@ const taskRunSchema = new mongoose.Schema(
   }
 );
 
+/**
+ * One run at a time per task.
+ *
+ * Concurrent runs of the same task can't see each other, so they duplicate
+ * whatever the task does — two runs of a job-application task apply to the same
+ * roles twice. This makes the second insert fail rather than relying on the
+ * scheduler firing correctly.
+ *
+ * Partial, so it only applies to `in_progress`: a task accumulates many
+ * `success` and `failed` runs and those must stay unconstrained. The filter
+ * names `status`, the field on this collection — a path that matches no
+ * document (`taskRuns.status`, say) yields an empty index that enforces nothing
+ * and reports no error.
+ */
+taskRunSchema.index(
+  { task: 1 },
+  {
+    name: "one_in_progress_run_per_task",
+    unique: true,
+    partialFilterExpression: { status: "in_progress" },
+  }
+);
+
 export type Status = (typeof STATUSES)[number];
 export type TaskRun = InferSchemaType<typeof taskRunSchema>;
 export type TaskRunDocument = HydratedDocument<TaskRun>;
