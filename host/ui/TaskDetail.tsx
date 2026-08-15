@@ -3,6 +3,7 @@ import { Link } from "react-router";
 import { Transcript } from "./Transcript";
 import type { TaskRun, TaskUpdate, TaskWithRuns } from "./api";
 import { useArmedAction } from "./useArmedAction";
+import { runTaskNow } from "./api";
 
 /** Full timestamp — a run's history is exactly where the date matters. */
 function formatStamp(iso: string): string {
@@ -49,6 +50,7 @@ export function TaskDetail({
   onSave,
   saving,
   saveError,
+  onQueued,
 }: {
   task: TaskWithRuns;
   onDelete: () => void;
@@ -56,6 +58,8 @@ export function TaskDetail({
   onSave: (update: TaskUpdate) => void;
   saving: boolean;
   saveError: string | null;
+  /** Lets the parent refetch, so the queued run shows up in the list. */
+  onQueued?: () => void;
 }) {
   // Keyed on the task id so an armed button can't carry to another record.
   const { armed: confirming, trigger: arm } = useArmedAction(onDelete, task.id);
@@ -96,6 +100,26 @@ export function TaskDetail({
 
   const succeeded = task.runs.filter((r) => r.status === "success").length;
   const failed = task.runs.filter((r) => r.status === "failed").length;
+  const runInProgress = task.runs.some((r) => r.status === "in_progress");
+
+  const [running, setRunning] = useState(false);
+  const [runNotice, setRunNotice] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Queued, not finished: the worker picks it up out of band, so the new run
+  // only appears once the list is refetched.
+  const runNow = async () => {
+    setRunning(true);
+    setRunNotice(null);
+    try {
+      await runTaskNow(task.id);
+      setRunNotice({ ok: true, text: "Run queued. It will appear below once it starts." });
+      onQueued?.();
+    } catch (err) {
+      setRunNotice({ ok: false, text: (err as Error)?.message ?? "Could not queue the run" });
+    } finally {
+      setRunning(false);
+    }
+  };
 
   return (
     <div className="task-detail">
@@ -116,6 +140,20 @@ export function TaskDetail({
           </div>
         </div>
         <div className="task-actions">
+          {!editing && (
+            <button
+              className="btn"
+              onClick={runNow}
+              disabled={deleting || running || runInProgress}
+              title={
+                runInProgress
+                  ? "A run is already in progress"
+                  : "Queue a run now, outside the schedule"
+              }
+            >
+              {running ? "Queueing…" : "Run now"}
+            </button>
+          )}
           {!editing && (
             <button className="btn" onClick={() => setEditing(true)} disabled={deleting}>
               Edit
@@ -224,6 +262,10 @@ export function TaskDetail({
           )}
         </div>
       </div>
+
+      {runNotice && (
+        <div className={runNotice.ok ? "run-notice" : "error"}>{runNotice.text}</div>
+      )}
 
       <div className="runs">
         <h3>

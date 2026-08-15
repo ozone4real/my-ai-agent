@@ -157,6 +157,15 @@ export async function deleteTask(taskId: string): Promise<number> {
   return data.deletedRuns ?? 0;
 }
 
+/** Queues the task to run now, outside its schedule. */
+export async function runTaskNow(taskId: string): Promise<void> {
+  const res = await fetch(`${TASKS_ENDPOINT}/${encodeURIComponent(taskId)}/runs`, {
+    method: "POST",
+    headers: { accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(await readError(res));
+}
+
 /** Deletes the conversation and its messages. Returns how many messages went. */
 export async function deleteConversation(conversationId: string): Promise<number> {
   const res = await fetch(`${ENDPOINT}/${encodeURIComponent(conversationId)}`, {

@@ -41,6 +41,41 @@ router.get("/:task_id", async (req: Request, res: Response) => {
   res.json({ ...serializeTask(task), runs: runs.map(serializeTaskRun) })
 })
 
+/**
+ * Run the task now, outside its schedule.
+ *
+ * There are no automatic retries — a failed run stays failed — so this is how a
+ * run gets another go. It queues the same job the scheduler queues, so the run
+ * is identical to a scheduled one.
+ */
+router.post("/:task_id/runs", async (req: Request, res: Response) => {
+  const task = await findTask(req.params.task_id, res)
+  if (!task) return
+
+  // The unique index would reject the second run anyway, but the worker's only
+  // recourse is to drop it silently. Failing here says so.
+  const running = await TaskRunModel.exists({ task: task._id, status: "in_progress" })
+  if (running) {
+    res.status(409).json({ error: "This task already has a run in progress" })
+    return
+  }
+
+  try {
+    const { default: AgenticJob } = await import("../jobs/agentic_job.js")
+    await new AgenticJob().enqueue({ taskId: String(task._id) })
+  } catch (error) {
+    // Redis down: the queue never took it, so say so rather than implying a run.
+    res.status(503).json({
+      error: `Could not queue the run: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    })
+    return
+  }
+
+  res.status(202).json({ queued: true, taskId: String(task._id) })
+})
+
 // PATCH: an absent field means "leave it alone", not "clear it".
 router.patch("/:task_id", async (req: Request, res: Response) => {
   const task = await findTask(req.params.task_id, res)

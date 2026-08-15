@@ -1225,3 +1225,15 @@ body {
     transition: none;
   }
 }
+
+/* Confirmation that a manual run was queued — the run itself appears below
+   only once the worker picks it up. */
+.run-notice {
+  margin: 4px 0 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 13px;
+}
