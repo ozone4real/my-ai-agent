@@ -2,6 +2,7 @@ import { Job, Worker } from "bullmq"
 import ApplicationJob, { JobQueueName } from "../jobs/application_job.js"
 import AgenticJob from "../jobs/agentic_job.js"
 import CompactTranscriptsJob from "../jobs/compact_transcripts_job.js"
+import { redisConnection } from "../redis.js"
 
 // Keyed off each class's own `jobName`, so the registry can't drift from what
 // the scheduler writes.
@@ -18,7 +19,7 @@ export default abstract class ApplicationWorker {
   get worker(): Worker {
     this._worker ||= new Worker(this.queueName, this.process.bind(this), {
       autorun: false,
-      connection: { host: process.env.REDIS_HOST, password: process.env.REDIS_PASSWORD },
+      connection: redisConnection,
       removeOnComplete: { count: 0 },
       removeOnFail: { count: 20000, age: 24 * 3600 * 7 },
       concurrency: this.concurrency,

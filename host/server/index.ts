@@ -14,7 +14,7 @@ import { connectDB } from "./db";
 import { basicAuth } from "./middleware/basic_auth.js";
 import { reconcileTaskSchedulers } from "./jobs/reconcile_schedulers.js";
 import router from "./routes"
-import SseStream from "./services/sse_stream";
+import { closeBullBoardQueues } from "./routes/admin/bull_board.js"
 
 const PORT = Number(process.env.PORT ?? 8080);
 
@@ -122,6 +122,7 @@ const shutdown = async (signal: string) => {
   console.log(`\n${signal} received, closing MCP servers…`);
   try {
     await Agent.shutdown();
+    await closeBullBoardQueues();
   } finally {
     process.exit(0);
   }

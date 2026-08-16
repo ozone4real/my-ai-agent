@@ -45,6 +45,8 @@
     "node": ">=23.11.1"
   },
   "dependencies": {
+    "@bull-board/api": "^8.6.1",
+    "@bull-board/express": "^8.6.1",
     "@langchain/anthropic": "^1.5.1",
     "@langchain/core": "^1.2.4",
     "@langchain/deepseek": "^1.1.5",

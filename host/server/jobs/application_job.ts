@@ -1,4 +1,5 @@
 import { Job, JobsOptions, Queue, RepeatOptions } from "bullmq"
+import { redisConnection } from "../redis.js"
 
 export enum JobQueueName {
   AGENTS = "agents",
@@ -46,12 +47,7 @@ export default abstract class ApplicationJob {
             delay: 1000,
           },
         },
-        connection: {
-          host: process.env.REDIS_HOST,
-          password: process.env.REDIS_PASSWORD,
-          // Bounds one connect attempt; does NOT make commands fail fast.
-          connectTimeout: 5000,
-        },
+        connection: redisConnection,
       })
       queues.set(key, queue)
     }
