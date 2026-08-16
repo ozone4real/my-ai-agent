@@ -8,7 +8,7 @@ import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatDeepSeek } from "@langchain/deepseek";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { MCPClient } from "@mcp-use/client";
-import ServersDefinition from "../../../mcp_servers/servers_definition.js";
+import ServersDefinition, { SERVER_TOOL_ALLOWLIST } from "../../../mcp_servers/servers_definition.js";
 import { convert, serialize, toLangChainHistory } from "./message_converters/deep_seek.js";
 import type { DeepSeekMessage, LangChainMessage } from "./message_converters/deep_seek.js";
 
@@ -99,11 +99,15 @@ export interface AgentOptions {
  *
  * Loud on failure rather than silently running an agent with no rules — the
  * file ships with the source, so a missing one means a broken deploy.
+ *
+ * HTML comments are stripped: the file is prepended to every system message, so
+ * notes meant for whoever edits it would otherwise be billed on every model
+ * call. Writing them as comments makes them free.
  */
 const OPERATING_INSTRUCTIONS = (() => {
   const file = path.join(import.meta.dirname, "instructions.md")
   try {
-    return readFileSync(file, "utf8").trim()
+    return readFileSync(file, "utf8").replace(/<!--[\s\S]*?-->/g, "").trim()
   } catch (err) {
     throw new Error(
       `Could not read agent operating instructions at ${file}: ${
@@ -194,11 +198,70 @@ export class Agent {
   static warmup(): Promise<unknown> {
     // Clear on failure, or one bad connector at boot poisons every later call
     // with the same rejected promise.
-    Agent.sessions ??= Agent.sharedClient.createAllSessions().catch((err) => {
-      Agent.sessions = null
-      throw err
-    })
+    Agent.sessions ??= Agent.sharedClient
+      .createAllSessions()
+      .then(async (sessions) => {
+        await Agent.resolveDisallowedTools()
+        return sessions
+      })
+      .catch((err) => {
+        Agent.sessions = null
+        throw err
+      })
     return Agent.sessions
+  }
+
+  /**
+   * Tool names withheld from every agent, derived once the servers are up.
+   *
+   * mcp-use offers only a denylist, so an allowlist has to be inverted against
+   * what each server actually publishes — which is only knowable after
+   * connecting, and changes when a provider adds tools.
+   */
+  private static disallowedTools: string[] = []
+
+  /**
+   * Turn {@link SERVER_TOOL_ALLOWLIST} into the denylist mcp-use takes.
+   *
+   * Best-effort: a server that won't list its tools keeps all of them, which
+   * costs tokens but leaves the agent working.
+   */
+  private static async resolveDisallowedTools(): Promise<void> {
+    const withheld: string[] = []
+
+    for (const [server, keep] of Object.entries(SERVER_TOOL_ALLOWLIST)) {
+      const session = Agent.sharedClient.getSession(server)
+      if (!session) continue
+
+      try {
+        const names = (await session.connector.listTools()).map((tool) => tool.name)
+        withheld.push(...names.filter((name) => !keep.includes(name)))
+
+        const missing = keep.filter((name) => !names.includes(name))
+        if (missing.length) {
+          console.warn(`${server}: allowlisted tools not published: ${missing.join(", ")}`)
+        }
+      } catch (err) {
+        console.warn(
+          `${server}: could not list tools, so all of them stay available: ${
+            err instanceof Error ? err.message : String(err)
+          }`
+        )
+      }
+    }
+
+    Agent.disallowedTools = withheld
+    if (withheld.length) console.log(`Withholding ${withheld.length} unused MCP tools`)
+  }
+
+  /**
+   * Withhold the unused tools from this agent.
+   *
+   * After warmup, before the first run: mcp-use builds its tool list during
+   * `initialize()`, which run/stream trigger, and re-reads this each time.
+   */
+  private applyToolFilter(): void {
+    if (Agent.disallowedTools.length) this.agent.setDisallowedTools(Agent.disallowedTools)
   }
 
   /** Disconnect every MCP server. Process shutdown only — this is shared state. */
@@ -210,6 +273,7 @@ export class Agent {
 
   async run(prompt: string, context: AgentMessage[] = []) {
     await Agent.warmup()
+    this.applyToolFilter()
     const result = await this.agent.run({
       prompt,
       externalHistory: toLangChainHistory(context)
@@ -218,6 +282,7 @@ export class Agent {
   }
   async *stream(prompt: string, context: AgentMessage[] = []): AsyncGenerator<AgentStreamPayload> {
     await Agent.warmup()
+    this.applyToolFilter()
     const stream = this.agent.stream({
       prompt,
       manageConnector: true,
@@ -278,6 +343,7 @@ export class Agent {
     }
 
     await Agent.warmup()
+    this.applyToolFilter()
 
     for await (const event of this.agent.streamEvents({
       prompt,

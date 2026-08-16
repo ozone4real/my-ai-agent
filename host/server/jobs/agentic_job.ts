@@ -16,7 +16,7 @@ export default class AgenticJob extends ApplicationJob {
   private static readonly FINISHED: Status[] = ["success", "failed"]
 
   /** How many prior runs are replayed into a run. Older history is behind `get-task`. */
-  private static readonly REPLAYED_RUNS = 5
+  private static readonly REPLAYED_RUNS = 3
 
   /**
    * Opens the note left on a run that ended by throwing.
@@ -211,8 +211,6 @@ export default class AgenticJob extends ApplicationJob {
 
   /** The most recent finished runs that have a transcript, oldest first. */
   private async runsToReplay(taskId: Types.ObjectId) {
-    // No longer tops up with successes: bare failures are dropped in
-    // previousTranscripts, so they can no longer crowd the window.
     const recent = await TaskRunModel.find({
       task: taskId,
       transcript: { $nin: [null, ""] },
@@ -223,9 +221,7 @@ export default class AgenticJob extends ApplicationJob {
       .lean()
 
     // Ascending: the most recent run ends up nearest the prompt.
-    return recent.sort(
-      (a, b) => new Date(a.endedAt).getTime() - new Date(b.endedAt).getTime()
-    )
+    return recent.reverse()
   }
 
   /**

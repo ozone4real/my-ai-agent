@@ -38,6 +38,21 @@ if (!FILESYSTEM_ROOT) {
 /** A Chrome already listening for DevTools connections. */
 const CHROME_URL = process.env.CHROME_URL ?? "http://127.0.0.1:9222";
 
+/**
+ * Tools to keep, for servers that expose far more than the agent needs.
+ *
+ * Every bound tool's schema is re-sent on every model call, so a server's whole
+ * catalogue is a per-call tax. Brevo alone publishes 282 tools — 408k
+ * characters, roughly 102k tokens — against the one used to send a report.
+ *
+ * A server absent from this map keeps all of its tools. mcp-use only offers a
+ * denylist, so {@link Agent.warmup} turns each entry into "everything this
+ * server exposes except these" once the tools are known.
+ */
+export const SERVER_TOOL_ALLOWLIST: Record<string, string[]> = {
+  brevo: ["transac_templates_send_transac_email"],
+};
+
 export default {
   // This project's own server (tasks + run history), started by `npm run app-mcp`.
   // A `url` because mcp-use v2 has no stdio transport — it must already be up.
