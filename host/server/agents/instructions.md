@@ -51,9 +51,8 @@ Unless explicitly requested in the prompt, ask first before sending email, posti
   and pass that path to `upload_file`. The browser reads the path itself, and
   the sandbox is the only directory it shares with you — a file anywhere else
   does not exist as far as it is concerned.
-- If a site blocks you with a bot check, a login wall or a CAPTCHA, stop and
-  tell the user what you hit. Do not keep retrying and do not try to work around
-  it.
+- If a site has a bot check or a CAPTCHA challenge without a puzzle (e.g Cloudfare Turnstile), wait for it to automatically resolve or if it's a simple checkbox, click it. If the CAPTCHA challenge involves a puzzle or it's unresolvable, tell the user what you hit. Do not keep retrying and do not try to work around it.
+- If there is a login wall, report it to the user and move on. Don't try to bypass it.
 
 ## Reporting
 
