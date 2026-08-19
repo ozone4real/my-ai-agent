@@ -16,6 +16,7 @@ import type { ChatMessage, LangChainMessage } from "./message_converters/chat.js
 // Defined in ./models.js so Settings can name a model without importing the
 // agent runtime. Re-exported here because this is where callers expect them.
 import { ModelType, MODELS } from "./models.js"
+import { MODEL_API_KEY_ENV } from "./models.js"
 export { ModelType, MODELS } from "./models.js"
 
 /** A prior turn: LangChain messages or the stored DeepSeek JSON. Both work. */
@@ -165,15 +166,6 @@ export class Agent {
     userInstructions,
     streaming = true,
   }: AgentOptions = {}) {
-    // const llm = new ChatAnthropic({
-    //   model,
-    //   temperature: 0.7,
-    //   apiKey: process.env.ANTHROPIC_API_KEY,
-    //   maxTokens: 10000
-    // });
-    
-
-
     // ChatDeepSeek and ChatAnthropic declare unrelated constructor signatures,
     // so TypeScript refuses to construct the union (TS2351). The fields passed
     // below are common to both, which is all the cast asserts.
@@ -181,19 +173,13 @@ export class Agent {
       fields: ConstructorParameters<typeof ChatDeepSeek>[0]
     ) => ChatDeepSeek | ChatAnthropic
 
-    let apiKey
-    if(Model === ChatAnthropic) {
-      apiKey = "ANTHROPIC_API_KEY"
-    } else if (Model == ChatDeepSeek) {
-      apiKey = "DEEP_SEEK_API_KEY"
-    } else {
-      throw("Invalid model")
-    }
+    const apiKeyEnv = MODEL_API_KEY_ENV[model]
+    if (!apiKeyEnv) throw new Error(`No API key configured for model ${model}`)
 
     const llm = new Model({
       model,
       maxTokens: 10000,
-      apiKey: process.env[apiKey],
+      apiKey: process.env[apiKeyEnv],
       streaming
     })
 
