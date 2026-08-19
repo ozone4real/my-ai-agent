@@ -9,17 +9,17 @@ import { ChatDeepSeek } from "@langchain/deepseek";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { MCPClient } from "@mcp-use/client";
 import ServersDefinition, { SERVER_TOOL_ALLOWLIST } from "../../../mcp_servers/servers_definition.js";
-import { convert, serialize, toLangChainHistory } from "./message_converters/deep_seek.js";
-import type { DeepSeekMessage, LangChainMessage } from "./message_converters/deep_seek.js";
+import { convert, serialize, toLangChainHistory } from "./message_converters/chat.js";
+import type { ChatMessage, LangChainMessage } from "./message_converters/chat.js";
 
 
 // Defined in ./models.js so Settings can name a model without importing the
 // agent runtime. Re-exported here because this is where callers expect them.
-import { ModelType } from "./models.js"
+import { ModelType, MODELS } from "./models.js"
 export { ModelType, MODELS } from "./models.js"
 
 /** A prior turn: LangChain messages or the stored DeepSeek JSON. Both work. */
-export type AgentMessage = DeepSeekMessage | LangChainMessage
+export type AgentMessage = ChatMessage | LangChainMessage
 
 export interface AgentStreamPayload {
   phase: "done" | "working";
@@ -119,7 +119,7 @@ const OPERATING_INSTRUCTIONS = (() => {
 
 export class Agent {
   public agent: MCPAgent
-  private llm: ChatDeepSeek
+  private llm: ChatDeepSeek | ChatAnthropic
 
   public mcpServers: Record<string, MCPServerConfig> = ServersDefinition
 
@@ -171,11 +171,29 @@ export class Agent {
     //   apiKey: process.env.ANTHROPIC_API_KEY,
     //   maxTokens: 10000
     // });
+    
 
-    const llm = new ChatDeepSeek({
+
+    // ChatDeepSeek and ChatAnthropic declare unrelated constructor signatures,
+    // so TypeScript refuses to construct the union (TS2351). The fields passed
+    // below are common to both, which is all the cast asserts.
+    const Model = MODELS[model] as new (
+      fields: ConstructorParameters<typeof ChatDeepSeek>[0]
+    ) => ChatDeepSeek | ChatAnthropic
+
+    let apiKey
+    if(Model === ChatAnthropic) {
+      apiKey = "ANTHROPIC_API_KEY"
+    } else if (Model == ChatDeepSeek) {
+      apiKey = "DEEP_SEEK_API_KEY"
+    } else {
+      throw("Invalid model")
+    }
+
+    const llm = new Model({
       model,
       maxTokens: 10000,
-      apiKey: process.env.DEEP_SEEK_API_KEY,
+      apiKey: process.env[apiKey],
       streaming
     })
 

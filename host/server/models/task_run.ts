@@ -30,7 +30,7 @@ const taskRunSchema = new mongoose.Schema(
      *
      * Every finished run is replayed into the next one, so raw transcripts would
      * grow the prompt without bound. Compacted runs keep the same
-     * DeepSeekMessage[] shape — a single assistant message — so loading them
+     * ChatMessage[] shape — a single assistant message — so loading them
      * needs no special case.
      */
     compacted: {

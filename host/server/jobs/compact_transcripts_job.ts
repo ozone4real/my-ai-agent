@@ -84,7 +84,7 @@ export default class CompactTranscriptsJob extends ApplicationJob {
           await TaskRunModel.updateOne(
             { _id: run._id },
             {
-              // Same DeepSeekMessage[] shape as a real transcript, so
+              // Same ChatMessage[] shape as a real transcript, so
               // AgenticJob loads it without a special case.
               transcript: JSON.stringify([{ role: "assistant", content: summary }]),
               compacted: true,

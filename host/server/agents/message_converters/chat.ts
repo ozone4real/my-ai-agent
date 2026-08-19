@@ -1,13 +1,16 @@
 /**
- * Translate between serialized LangChain messages (see dump.json) and the
- * DeepSeek / OpenAI chat-completions message format.
+ * Translate between LangChain message objects and the chat-completions message
+ * shape this app stores.
  *
- * `convert` goes LangChain -> DeepSeek, for persisting a conversation;
+ * `convert` goes LangChain -> stored, for persisting a conversation;
  * `toLangChainHistory` goes back, for feeding a stored conversation to the
  * agent as `externalHistory`.
  *
- * The CLI wrapper lives in scripts/langchain-to-deepseek.ts — this module is
- * import-only so it has no side effects.
+ * Provider-agnostic despite the shape's origin: `{ role, content, tool_calls }`
+ * is the OpenAI chat-completions format that DeepSeek and others adopted, and
+ * nothing here is specific to any of them. Stored transcripts become LangChain
+ * objects before they reach a model, so the same records replay against
+ * Anthropic as against DeepSeek.
  */
 
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages'
@@ -42,16 +45,16 @@ export interface SerializedMessage {
 }
 
 // ---------------------------------------------------------------------------
-// Output shape (DeepSeek / OpenAI)
+// Output shape (chat-completions)
 // ---------------------------------------------------------------------------
 
-export interface DeepSeekToolCall {
+export interface ChatToolCall {
   id: string
   type: 'function'
   function: { name: string; arguments: string }
 }
 
-export type DeepSeekMessage =
+export type ChatMessage =
   | { role: 'system'; content: string, [key: string]: any }
   | { role: 'user'; content: string, [key: string]: any }
   | { role: 'tool'; tool_call_id: string; content: string; name?: string, [key: string]: any }
@@ -59,7 +62,7 @@ export type DeepSeekMessage =
       role: 'assistant'
       content: string | null
       reasoning_content?: string
-      tool_calls?: DeepSeekToolCall[],
+      tool_calls?: ChatToolCall[],
       [key: string]: any
     }
 
@@ -74,7 +77,7 @@ function messageClass(message: SerializedMessage): string {
 
 /**
  * LangChain content is either a plain string or a list of content blocks.
- * Only textual blocks survive the conversion — DeepSeek chat messages carry
+ * Only textual blocks survive the conversion — chat-completions messages carry
  * text, reasoning and tool calls, nothing else.
  */
 function flattenContent(content: unknown): string {
@@ -95,7 +98,7 @@ function flattenContent(content: unknown): string {
     .join('')
 }
 
-/** Tool-call arguments must be a JSON *string* in the DeepSeek format. */
+/** Tool-call arguments must be a JSON *string* in the chat-completions format. */
 function stringifyArguments(args: unknown): string {
   if (typeof args === 'string') return args
   if (args == null) return '{}'
@@ -107,7 +110,7 @@ function stringifyArguments(args: unknown): string {
  * carries the exact argument string the model emitted); otherwise rebuild the
  * calls from LangChain's parsed `tool_calls` / streamed `tool_call_chunks`.
  */
-function extractToolCalls(message: SerializedMessage): DeepSeekToolCall[] {
+function extractToolCalls(message: SerializedMessage): ChatToolCall[] {
   const raw = message.kwargs.additional_kwargs?.tool_calls
   if (Array.isArray(raw) && raw.length > 0) {
     return raw.map((call: any, index: number) => ({
@@ -140,7 +143,7 @@ function extractToolCalls(message: SerializedMessage): DeepSeekToolCall[] {
 // Conversion
 // ---------------------------------------------------------------------------
 
-export function toDeepSeekMessage(message: SerializedMessage): DeepSeekMessage | null {
+export function toChatMessage(message: SerializedMessage): ChatMessage | null {
   const kind = messageClass(message)
   const content = flattenContent(message.kwargs.content)
 
@@ -155,7 +158,7 @@ export function toDeepSeekMessage(message: SerializedMessage): DeepSeekMessage |
   if (kind.startsWith('Tool')) {
     const toolCallId = message.kwargs.tool_call_id
     if (!toolCallId) return null
-    const tool: DeepSeekMessage = { role: 'tool', tool_call_id: toolCallId, content }
+    const tool: ChatMessage = { role: 'tool', tool_call_id: toolCallId, content }
     if (message.kwargs.name) tool.name = message.kwargs.name
     return tool
   }
@@ -164,9 +167,9 @@ export function toDeepSeekMessage(message: SerializedMessage): DeepSeekMessage |
     const toolCalls = extractToolCalls(message)
     const reasoning = message.kwargs.additional_kwargs?.reasoning_content
 
-    const assistant: DeepSeekMessage = {
+    const assistant: ChatMessage = {
       role: 'assistant',
-      // DeepSeek expects an explicit null when the turn is only tool calls.
+      // The format expects an explicit null when the turn is only tool calls.
       content: content === '' && toolCalls.length > 0 ? null : content,
     }
     if (typeof reasoning === 'string' && reasoning.length > 0) {
@@ -180,10 +183,10 @@ export function toDeepSeekMessage(message: SerializedMessage): DeepSeekMessage |
   return null
 }
 
-export function convert(dump: SerializedMessage[]): DeepSeekMessage[] {
+export function convert(dump: SerializedMessage[]): ChatMessage[] {
   return dump
-    .map(toDeepSeekMessage)
-    .filter((message): message is DeepSeekMessage => message !== null)
+    .map(toChatMessage)
+    .filter((message): message is ChatMessage => message !== null)
 }
 
 /**
@@ -200,11 +203,11 @@ export function serialize(messages: unknown[]): SerializedMessage[] {
 }
 
 // ---------------------------------------------------------------------------
-// Reverse conversion (DeepSeek -> LangChain)
+// Reverse conversion (stored -> LangChain)
 // ---------------------------------------------------------------------------
 
 /**
- * DeepSeek keeps tool-call arguments as a JSON string, LangChain as an object.
+ * Stored messages keep tool-call arguments as a JSON string, LangChain as an object.
  * Anything that isn't parseable JSON is handed over untouched, so a malformed
  * argument string still reaches the model rather than blowing up the replay.
  */
@@ -217,7 +220,7 @@ function parseArguments(args: string): Record<string, any> {
   }
 }
 
-function toToolCall(call: DeepSeekToolCall, index: number): ToolCall {
+function toToolCall(call: ChatToolCall, index: number): ToolCall {
   return {
     id: call.id ?? `call_${index}`,
     name: call.function?.name ?? '',
@@ -250,7 +253,7 @@ function isLangChainMessage(message: unknown): message is LangChainMessage {
 }
 
 /**
- * Rebuild LangChain messages from stored DeepSeek ones, for replay as an
+ * Rebuild LangChain messages from stored ones, for replay as an
  * agent's `externalHistory`. Messages that are already LangChain — an agent's
  * own `conversationHistory`, say — pass through untouched.
  *
@@ -259,7 +262,7 @@ function isLangChainMessage(message: unknown): message is LangChainMessage {
  * results don't already have.
  */
 export function toLangChainMessage(
-  message: DeepSeekMessage | LangChainMessage
+  message: ChatMessage | LangChainMessage
 ): LangChainMessage | null {
   if (isLangChainMessage(message)) return message
 
@@ -292,7 +295,7 @@ export function toLangChainMessage(
 }
 
 export function toLangChainHistory(
-  messages: Array<DeepSeekMessage | LangChainMessage>
+  messages: Array<ChatMessage | LangChainMessage>
 ): LangChainMessage[] {
   return messages
     .map(toLangChainMessage)
