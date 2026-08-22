@@ -1,4 +1,4 @@
-import { MCPServer } from "mcp-use";
+import { acceptedContent, inputRequired, inputResponse, MCPServer } from "mcp-use";
 import { Types } from "mongoose";
 import { z } from "zod";
 // Explicit .js extension: tsconfig.node.json compiles this directory with
@@ -73,9 +73,6 @@ export const scheduleTask = server.tool(
     // nothing after the first and keeps the module importable when Mongo is
     // down — connecting at import time would take the whole server with it.
     await connectDB();
-
-    // A malformed id would otherwise surface as a mongoose CastError, i.e. a
-    // stack trace where a usable message belongs.
     if (sourceConversation && !Types.ObjectId.isValid(sourceConversation)) {
       return {
         isError: true,
@@ -134,7 +131,7 @@ export const getTask = server.tool(
       return { isError: true, content: [{ type: "text", text: `Not a valid task id: ${id}` }] };
     }
 
-    const task = await TaskModel.findById(id);
+    const task = await TaskModel.findOne( { creator: "assistant", _id: id });
     if (!task) {
       return { isError: true, content: [{ type: "text", text: `No task with id ${id}` }] };
     }
@@ -181,7 +178,7 @@ export const listTasks = server.tool(
     await connectDB();
 
     const [tasks, total] = await Promise.all([
-      TaskModel.find().sort({ createdAt: -1 }).limit(limit),
+      TaskModel.find({ creator: "assistant" }).sort({ createdAt: -1 }).limit(limit),
       TaskModel.countDocuments(),
     ]);
 
@@ -333,6 +330,87 @@ export const deleteTask = server.tool(
     await task.deleteOne();
 
     const payload = { id, deletedRuns: deletedCount ?? 0 };
+    return {
+      content: [{ type: "text", text: JSON.stringify(payload) }],
+      structuredContent: payload,
+    };
+  }
+);
+
+// Correlation key for this tool's embedded elicitation. The client echoes it
+// back under `inputResponses` when it retries the call with the user's answer.
+const ASK_USER_KEY = "ask-user-response";
+
+const askUserResponseSchema = z.object({
+  response: z.string().describe("The user's answer to the question"),
+});
+
+export const askUser = server.tool(
+  {
+    name: "ask-user",
+    title: "Ask user",
+    description: "Tool for eliciting information needed to continue a task from the user mid-run",
+    schema: z.object({
+      question: z.string().describe("The question to put to the user"),
+      context: z.enum([ "task", "conversation" ]).describe("Where the question originates: an unattended task run, or a live conversation"),
+    }),
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    outputSchema: z.object({
+      question: z.string(),
+      context: z.enum([ "task", "conversation" ]),
+      response: z.string(),
+    }),
+  },
+  async({ question, context }, ctx) => {
+    if(context === "task") {
+      const text = "Agent running unattended; interaction with user not supported. End run if elicitation is needed to proceed with task"
+      return {
+        isError: true,
+        content: [{ type: "text", text }]
+      }
+    }
+    // Elicitation is a multi-round-trip flow: the first pass returns an
+    // input-required result, the client collects the answer and *retries this
+    // same call*, and the callback runs again with the reply in ctx.
+    const reply = inputResponse(ctx.inputResponses, ASK_USER_KEY);
+
+    if (reply.kind === "missing") {
+      if (!ctx.client.can("elicitation")) {
+        return {
+          isError: true,
+          content: [{ type: "text", text: "This client cannot prompt the user; ask the question in your own reply instead." }],
+        };
+      }
+
+      return inputRequired({
+        inputRequests: {
+          [ASK_USER_KEY]: inputRequired.elicit({
+            message: question,
+            requestedSchema: askUserResponseSchema,
+          }),
+        },
+      });
+    }
+
+    if (reply.kind !== "elicit" || reply.action !== "accept") {
+      const reason = reply.kind === "elicit" && reply.action === "decline"
+        ? "The user declined to answer."
+        : "The user dismissed the question without answering.";
+      return { isError: true, content: [{ type: "text", text: reason }] };
+    }
+
+    // Client-supplied — validate before trusting it.
+    const answer = acceptedContent(ctx.inputResponses, ASK_USER_KEY, askUserResponseSchema);
+    if (!answer) {
+      return { isError: true, content: [{ type: "text", text: "The user's answer did not match the requested shape." }] };
+    }
+
+    const payload = { question, context, response: answer.response };
     return {
       content: [{ type: "text", text: JSON.stringify(payload) }],
       structuredContent: payload,

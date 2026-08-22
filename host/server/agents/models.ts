@@ -5,8 +5,7 @@ import { ChatDeepSeek } from "@langchain/deepseek";
  * ChatAnthropic that asks Anthropic to cache the prompt prefix.
  *
  * Nothing sends `cache_control` on its own — not the API, and not
- * `@langchain/anthropic`, whose only mention of it is a pass-through from
- * per-call options (`cache_control: options?.cache_control`). Without it every
+ * `@langchain/anthropic`. Without it every
  * call is billed as fresh input.
  *
  * That is expensive here: the tool schemas and the operating instructions
