@@ -1,8 +1,12 @@
-# MCP fullstack AI Agent
+# MCP Agent Platform (built for personal use)
 
-A self-hosted AI agent with a web UI, a task scheduler, and its own MCP server.
-The agent reaches the outside world through MCP: a headful browser, a shell, a
+A self-hosted platform for running AI agents: chat with one, schedule it to work
+unattended, and give it real tools through MCP — a headful browser, a shell, a
 sandboxed filesystem, local web search, and email.
+
+The agent loop itself is [mcp-use](https://mcp-use.com)'s. What's here is
+everything around it — the tool surface, context management, scheduling,
+persistence, and the UI to watch it work.
 
 - **Chat** with the agent and watch it work — reasoning, tool calls and the
   reply stream in as they happen.

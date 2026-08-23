@@ -2,7 +2,7 @@
   "name": "my-mcp-server",
   "type": "module",
   "version": "1.0.0",
-  "description": "MCP server: my-mcp-server",
+  "description": "Self-hosted platform for running AI agents: chat, scheduled tasks, and MCP tools.",
   "author": "",
   "license": "MIT",
   "keywords": [
