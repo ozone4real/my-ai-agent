@@ -57,6 +57,53 @@ class CachingChatAnthropic extends ChatAnthropic {
 }
 
 // DeepSeek caches automatically and has no `cache_control`, so only the
+/**
+ * ChatOpenRouter that reports a choice-less response instead of crashing.
+ *
+ * OpenRouter answers some failures with HTTP 200 and a body carrying an
+ * `error` object and no `choices` — rate limits on the free tier and upstream
+ * provider faults both arrive this way. `_generate` checks `response.ok`, so
+ * the body sails through and the next line indexes `data.choices[0]`, which
+ * throws `TypeError: Cannot read properties of undefined (reading '0')` from
+ * inside the library. That surfaces with no hint of the cause, and on a
+ * scheduled run it kills the job after however many steps it had done.
+ *
+ * The streaming path is unaffected — it reads `data.choices?.[0]` — so this
+ * only bites where streaming is off, which is exactly the agentic job.
+ *
+ * Translated rather than fixed at the source: the response body is consumed
+ * inside the library, and the message converters it needs aren't exported, so
+ * re-implementing `_generate` here would mean copying private internals.
+ */
+class ResilientChatOpenRouter extends ChatOpenRouter {
+  /** The library's own crash, matched narrowly enough not to mask real bugs. */
+  private static isMissingChoices(error: unknown): boolean {
+    return (
+      error instanceof TypeError &&
+      /reading '0'|choices/.test(error.message) &&
+      (error.stack ?? "").includes("@langchain/openrouter")
+    )
+  }
+
+  async _generate(
+    ...args: Parameters<ChatOpenRouter["_generate"]>
+  ): ReturnType<ChatOpenRouter["_generate"]> {
+    try {
+      return await super._generate(...args)
+    } catch (error) {
+      if (!ResilientChatOpenRouter.isMissingChoices(error)) throw error
+      // Worded for describeProviderError, which routes "rate limit" to the
+      // message telling the user to wait or switch model.
+      throw new Error(
+        `OpenRouter returned no completion for ${this.model}. This is usually a ` +
+          `rate limit or an upstream provider failure. Wait and try again, or ` +
+          `switch to another model.`,
+        { cause: error }
+      )
+    }
+  }
+}
+
 // Anthropic models get the caching subclass. OpenRouter passes the prompt on to
 // whichever provider serves the model, and each one applies its own caching.
 export const MODELS = {
@@ -65,14 +112,14 @@ export const MODELS = {
   [ModelType.OPUS_4_8]: CachingChatAnthropic,
   [ModelType.SONNET_5_0]: CachingChatAnthropic,
   [ModelType.OPUS_5_0]: CachingChatAnthropic,
-  [ModelType.OPENROUTER_GEMINI_3_7_FLASH]: ChatOpenRouter,
-  [ModelType.OPENROUTER_GPT_5]: ChatOpenRouter,
-  [ModelType.OPENROUTER_GROK_4_6]: ChatOpenRouter,
-  [ModelType.OPENROUTER_LLAMA_4_SCOUT]: ChatOpenRouter,
-  [ModelType.OPENROUTER_LLAMA_3_3_70B]: ChatOpenRouter,
-  [ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA]: ChatOpenRouter,
-  [ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING]: ChatOpenRouter,
-  [ModelType.OPENROUTER_FREE_GEMMA_4_31B]: ChatOpenRouter,
+  [ModelType.OPENROUTER_GEMINI_3_7_FLASH]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_GPT_5]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_GROK_4_6]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_LLAMA_4_SCOUT]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_LLAMA_3_3_70B]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_FREE_GEMMA_4_31B]: ResilientChatOpenRouter,
 }
 
 /**
