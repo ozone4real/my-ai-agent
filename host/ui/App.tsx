@@ -825,7 +825,7 @@ export function App() {
                 onSave={(update) => void saveTask(activeTask.id, update)}
                 saving={savingTask}
                 saveError={taskSaveError}
-                onQueued={() => void openTask(activeTask.id)}
+                onRefresh={() => void openTask(activeTask.id)}
               />
             )}
           </div>

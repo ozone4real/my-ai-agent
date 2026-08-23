@@ -808,6 +808,23 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Reads as neutral until hovered or armed, like .btn.danger. */
+.run-toggle.danger:hover:not(:disabled) {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.run-toggle.danger.confirming {
+  background: var(--error);
+  border-color: var(--error);
+  color: #fff;
+}
+
+.run-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .run-toggle {
   margin-left: auto;
   border: none;

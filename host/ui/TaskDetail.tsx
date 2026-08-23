@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { Transcript } from "./Transcript";
 import type { TaskRun, TaskUpdate, TaskWithRuns } from "./api";
 import { useArmedAction } from "./useArmedAction";
-import { getSettings, runTaskNow } from "./api";
+import { deleteTaskRun, getSettings, runTaskNow } from "./api";
 
 /** Full timestamp — a run's history is exactly where the date matters. */
 function formatStamp(iso: string): string {
@@ -22,9 +22,21 @@ function formatDuration(run: TaskRun): string | null {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
-function Run({ run }: { run: TaskRun }) {
+function Run({
+  run,
+  onDelete,
+  deleting,
+}: {
+  run: TaskRun;
+  onDelete: () => void;
+  deleting: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const duration = formatDuration(run);
+  // Keyed on the run id so an armed button can't carry to another run.
+  const { armed: confirming, trigger: arm } = useArmedAction(onDelete, run.id);
+  // The server refuses these; don't offer the button in the first place.
+  const running = run.status === "in_progress";
 
   return (
     <li className="run">
@@ -35,6 +47,16 @@ function Run({ run }: { run: TaskRun }) {
         {run.transcript && (
           <button className="run-toggle" onClick={() => setOpen((v) => !v)}>
             {open ? "Hide transcript" : "Transcript"}
+          </button>
+        )}
+        {!running && (
+          <button
+            className={`run-toggle danger ${confirming ? "confirming" : ""}`}
+            onClick={arm}
+            disabled={deleting}
+            title="Delete this run and its transcript"
+          >
+            {deleting ? "Deleting…" : confirming ? "Confirm" : "Delete"}
           </button>
         )}
       </div>
@@ -50,7 +72,7 @@ export function TaskDetail({
   onSave,
   saving,
   saveError,
-  onQueued,
+  onRefresh,
 }: {
   task: TaskWithRuns;
   onDelete: () => void;
@@ -58,8 +80,8 @@ export function TaskDetail({
   onSave: (update: TaskUpdate) => void;
   saving: boolean;
   saveError: string | null;
-  /** Lets the parent refetch, so the queued run shows up in the list. */
-  onQueued?: () => void;
+  /** Refetches the task, so a queued or deleted run is reflected in the list. */
+  onRefresh?: () => void;
 }) {
   // Keyed on the task id so an armed button can't carry to another record.
   const { armed: confirming, trigger: arm } = useArmedAction(onDelete, task.id);
@@ -118,6 +140,22 @@ export function TaskDetail({
 
   const [running, setRunning] = useState(false);
   const [runNotice, setRunNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const [deletingRun, setDeletingRun] = useState<string | null>(null);
+
+  // Refetch rather than splice the row out: the run list is the server's, and
+  // a failed delete would otherwise leave the UI disagreeing with it.
+  const removeRun = async (runId: string) => {
+    setDeletingRun(runId);
+    setRunNotice(null);
+    try {
+      await deleteTaskRun(task.id, runId);
+      onRefresh?.();
+    } catch (err) {
+      setRunNotice({ ok: false, text: (err as Error)?.message ?? "Could not delete the run" });
+    } finally {
+      setDeletingRun(null);
+    }
+  };
 
   // Queued, not finished: the worker picks it up out of band, so the new run
   // only appears once the list is refetched.
@@ -127,7 +165,7 @@ export function TaskDetail({
     try {
       await runTaskNow(task.id);
       setRunNotice({ ok: true, text: "Run queued. It will appear below once it starts." });
-      onQueued?.();
+      onRefresh?.();
     } catch (err) {
       setRunNotice({ ok: false, text: (err as Error)?.message ?? "Could not queue the run" });
     } finally {
@@ -321,7 +359,12 @@ export function TaskDetail({
         ) : (
           <ul className="run-list">
             {task.runs.map((run) => (
-              <Run key={run.id} run={run} />
+              <Run
+                key={run.id}
+                run={run}
+                onDelete={() => void removeRun(run.id)}
+                deleting={deletingRun === run.id}
+              />
             ))}
           </ul>
         )}

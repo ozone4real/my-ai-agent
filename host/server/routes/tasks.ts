@@ -113,6 +113,49 @@ router.post("/:task_id/runs", async (req: Request, res: Response) => {
   res.status(202).json({ queued: true, taskId: String(task._id) })
 })
 
+/**
+ * Delete one run of a task.
+ *
+ * App server only — deliberately not an MCP tool. The agent replays past runs
+ * into later ones, so letting it delete them would let it edit its own record
+ * of what it did.
+ *
+ * A run still `in_progress` is refused: the worker executing it holds the
+ * document and writes the outcome at the end, and the unique index that keeps
+ * one run per task in flight is what the deletion would quietly lift. A run
+ * whose worker died is closed by the reaper, and can be deleted after that.
+ */
+router.delete("/:task_id/runs/:run_id", async (req: Request, res: Response) => {
+  const task = await findTask(req.params.task_id, res)
+  if (!task) return
+
+  const runId = String(req.params.run_id)
+  if (!Types.ObjectId.isValid(runId)) {
+    res.status(404).json({ error: "Task run not found" })
+    return
+  }
+
+  // Scoped to the task, so a run id from another task 404s rather than being
+  // deleted through the wrong parent.
+  const run = await TaskRunModel.findOne({ _id: runId, task: task._id })
+  if (!run) {
+    res.status(404).json({ error: "Task run not found" })
+    return
+  }
+
+  if (run.status === "in_progress") {
+    res.status(409).json({
+      error:
+        "This run is still in progress. Wait for it to finish, or let it be " +
+        "closed automatically if its worker has stopped.",
+    })
+    return
+  }
+
+  await run.deleteOne()
+  res.json({ id: runId, deleted: true })
+})
+
 // PATCH: an absent field means "leave it alone", not "clear it".
 router.patch("/:task_id", async (req: Request, res: Response) => {
   const task = await findTask(req.params.task_id, res)

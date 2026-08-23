@@ -182,6 +182,15 @@ export async function deleteTask(taskId: string): Promise<number> {
   return data.deletedRuns ?? 0;
 }
 
+/** Deletes one run of a task. A run still in progress is refused. */
+export async function deleteTaskRun(taskId: string, runId: string): Promise<void> {
+  const res = await fetch(
+    `${TASKS_ENDPOINT}/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}`,
+    { method: "DELETE", headers: { accept: "application/json" } }
+  );
+  if (!res.ok) throw new Error(await readError(res));
+}
+
 /** Queues the task to run now, outside its schedule. */
 export async function runTaskNow(taskId: string): Promise<void> {
   const res = await fetch(`${TASKS_ENDPOINT}/${encodeURIComponent(taskId)}/runs`, {
