@@ -7,9 +7,28 @@ import type {
   InferSchemaType,
   HydratedDocument,
 } from "mongoose";
+// The leaf module: importing agents/models.js would pull LangChain in behind it.
+import { MODEL_CHOICES } from "../agents/model_types.js";
 
 const conversationSchema = new mongoose.Schema(
-  {},
+  {
+    /**
+     * Model this thread currently runs on. Unset means Settings decides.
+     *
+     * Named `agentModel`, not `model`: a schema path called `model` shadows
+     * Mongoose's own `doc.model()`, which populate and the hooks rely on. The
+     * API still calls it `model`.
+     *
+     * Per thread rather than per message: a turn can change it, and every turn
+     * after that follows. Replay is unaffected — messages are stored as plain
+     * role/content and converted to whichever provider serves the next turn.
+     */
+    agentModel: {
+      type: String,
+      required: false,
+      enum: MODEL_CHOICES,
+    },
+  },
   {
     timestamps: true,
     // Expose the `messages` virtual through .toObject()/.toJSON() so a

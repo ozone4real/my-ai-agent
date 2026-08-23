@@ -2,6 +2,11 @@ import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatDeepSeek } from "@langchain/deepseek";
 import { ChatOpenRouter } from "@langchain/openrouter";
 
+// The ids themselves live in a leaf module with no imports, so Mongoose models
+// and the MCP server can validate against them without pulling in LangChain.
+import { ModelType } from "./model_types.js";
+export { ModelType, MODEL_CHOICES, FREE_MODELS } from "./model_types.js";
+
 /**
  * ChatAnthropic that asks Anthropic to cache the prompt prefix.
  *
@@ -50,61 +55,6 @@ class CachingChatAnthropic extends ChatAnthropic {
     };
   }
 }
-
-/**
- * A model the agent can run on.
- *
- * The value is the id the provider expects, so adding a model is one entry here
- * plus one in {@link MODELS} and {@link MODEL_API_KEY_ENV}. Settings builds its
- * dropdown from these, so a new entry shows up there on its own.
- *
- * OpenRouter entries carry their `vendor/model` id verbatim — that slash is
- * what tells the two apart at a glance, and OpenRouter publishes 400+ models,
- * so the ones below are a starting set rather than the limit. Anything from
- * `https://openrouter.ai/api/v1/models` works.
- */
-export enum ModelType {
-  OPUS_4_8 = "claude-opus-4-8",
-  SONNET_5_0 = "claude-sonnet-5",
-  OPUS_5_0 = "claude-opus-5",
-  DEEPSEEK_V4_FLASH = "deepseek-v4-flash",
-  DEEPSEEK_V4_PRO = "deepseek-v4-pro",
-  // Via OpenRouter — providers this app has no direct integration for.
-  OPENROUTER_GEMINI_3_7_FLASH = "google/gemini-3.7-flash",
-  OPENROUTER_GPT_5 = "openai/gpt-5",
-  OPENROUTER_GROK_4_6 = "x-ai/grok-4.6",
-  // Llama. No free variant exists on OpenRouter, but these are cheap enough to
-  // be the sensible alternative to the free tier: ~$0.10/M in, with none of its
-  // request caps or prompt retention. Scout carries a 1.3M context.
-  OPENROUTER_LLAMA_4_SCOUT = "meta-llama/llama-4-scout",
-  OPENROUTER_LLAMA_3_3_70B = "meta-llama/llama-3.3-70b-instruct",
-  // Free tier. The `:free` suffix is OpenRouter's, and it is the whole
-  // difference — the same id without it is the paid variant. Only models that
-  // advertise tool calling are listed: the agent binds ~15 tools, and one that
-  // cannot call them is useless here however cheap it is.
-  //
-  // Read the free-tier caveats in FREE_MODELS before making one a default.
-  OPENROUTER_FREE_NEMOTRON_ULTRA = "nvidia/nemotron-3-ultra-550b-a55b:free",
-  OPENROUTER_FREE_NEMOTRON_LIGHTNING = "nvidia/nemotron-3.5-lightning:free",
-  OPENROUTER_FREE_GEMMA_4_31B = "google/gemma-4-31b-it:free",
-}
-
-/**
- * Models that cost nothing per token — and what that buys.
- *
- * Free on OpenRouter means rate-limited by request, not metered by token: a
- * daily request cap the agent can exhaust in a handful of runs, since one run
- * spends up to `maxSteps` model calls. Expect 429s mid-run rather than a bill.
- *
- * It usually also means the prompt is retained for training by the provider.
- * This agent handles a CV, contact details and job applications, so treat a
- * free model as unsuitable for anything you would not publish.
- */
-export const FREE_MODELS: ReadonlySet<ModelType> = new Set([
-  ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA,
-  ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING,
-  ModelType.OPENROUTER_FREE_GEMMA_4_31B,
-])
 
 // DeepSeek caches automatically and has no `cache_control`, so only the
 // Anthropic models get the caching subclass. OpenRouter passes the prompt on to

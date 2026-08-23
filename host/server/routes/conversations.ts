@@ -4,6 +4,7 @@ import { Conversation, ConversationModel } from "../models/conversation"
 import { createConversationSchema, createMessageSchema } from "./schemas/conversations"
 import { Author, Message, MessageDocument, MessageModel } from "../models/message"
 import { Agent, AgentMessage, AgentStreamEventPayload, AgentStreamPayload } from "../agents";
+import type { ModelType } from "../agents/model_types.js";
 import SSEStream from "../services/sse_stream"
 import {
   cancelElicitations,
@@ -59,8 +60,8 @@ const createMessage = async(content: string, conversation: Document, session: Cl
 // call wasn't awaited it surfaced as an unhandled rejection rather than an error
 // here. Sequential saves for now; restore the transaction once Mongo runs as a
 // replica set (and pass `session` through to createMessage so both saves share it).
-const createConversation = async (content: string) => {
-  const conversation = new ConversationModel({})
+const createConversation = async (content: string, model?: string) => {
+  const conversation = new ConversationModel({ agentModel: model })
   await conversation.save()
   await createMessage(content, conversation, null)
   return conversation
@@ -133,6 +134,7 @@ router.get("/:conversation_id", async (req: Request, res: Response) => {
   res.json({
     id: String(conversation._id),
     createdAt: conversation.createdAt,
+    model: conversation.agentModel ?? null,
     messages: conversation.messages.map(serializeMessage),
   })
 })
@@ -163,10 +165,21 @@ router.delete("/:conversation_id", async (req: Request, res: Response) => {
 })
 
 router.post("/", async (req: Request, res: Response) => {
-  const params = createConversationSchema.parse(req.body)
-  const conversation = await createConversation(params.message)
+  // safeParse: Express 5 turns a thrown ZodError into a 500 HTML page, which
+  // the UI's error reader can't parse. An unknown model lands here.
+  const parsed = createConversationSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") })
+    return
+  }
+  const params = parsed.data
+  const conversation = await createConversation(params.message, params.model)
 
-  const agent = await Agent.withSettings({ conversationId: String(conversation._id) })
+  const agent = await Agent.withSettings({
+    conversationId: String(conversation._id),
+    // Unset on the thread means the app default, resolved per turn.
+    model: (conversation.agentModel as ModelType | undefined) ?? undefined,
+  })
   if(!SSEStream.wantsStream(req)) {
     const reply = await agent.run(params.message)
     await createMessage(reply, conversation, null, "assistant")
@@ -187,7 +200,12 @@ router.post("/", async (req: Request, res: Response) => {
 })
 
 router.post("/:conversation_id/messages", async(req: Request, res: Response) => {
-  const params = createMessageSchema.parse(req.body)
+  const parsed = createMessageSchema.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues.map((i) => i.message).join("; ") })
+    return
+  }
+  const params = parsed.data
 
   const conversationId = String(req.params.conversation_id)
   if (!Types.ObjectId.isValid(conversationId)) {
@@ -215,7 +233,18 @@ router.post("/:conversation_id/messages", async(req: Request, res: Response) => 
 
   await createMessage(params.message, conversation, null)
 
-  const agent = await Agent.withSettings({ conversationId: String(conversation._id) })
+  // A model on the request switches the thread from here on, so later turns
+  // keep using it without the client having to resend it.
+  if (params.model && params.model !== conversation.agentModel) {
+    conversation.agentModel = params.model
+    await conversation.save()
+  }
+
+  const agent = await Agent.withSettings({
+    conversationId: String(conversation._id),
+    // Unset on the thread means the app default, resolved per turn.
+    model: (conversation.agentModel as ModelType | undefined) ?? undefined,
+  })
   if (!SSEStream.wantsStream(req)) {
     const reply = await agent.run(params.message, history)
     await createMessage(reply, conversation, null, "assistant")

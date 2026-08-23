@@ -4,6 +4,7 @@
 // The `.js` extensions are load-bearing: mcp_servers/ imports this under
 // NodeNext, which won't guess them. Bundler resolution accepts them too.
 import { z } from "zod";
+import { MODEL_CHOICES, ModelType } from "../agents/model_types.js";
 import { CREATORS, type TaskDocument } from "../models/task.js";
 import { STATUSES, type TaskRunDocument } from "../models/task_run.js";
 
@@ -14,6 +15,10 @@ export const taskShape = z.object({
   prompt: z.string().describe("The prompt the agent is run with"),
   schedule: z.string().describe("Cron expression the task runs on"),
   limit: z.number().nullable().describe("Max number of runs; null means unlimited"),
+  model: z
+    .string()
+    .nullable()
+    .describe("Model this task's runs use; null means the app default"),
   sourceConversation: z
     .string()
     .nullable()
@@ -49,6 +54,7 @@ export const serializeTask = (task: TaskDocument): SerializedTask => ({
   prompt: task.prompt,
   schedule: task.schedule,
   limit: task.limit ?? null,
+  model: task.agentModel ?? null,
   sourceConversation: task.sourceConversation ? String(task.sourceConversation) : null,
   createdAt: task.createdAt.toISOString(),
   updatedAt: task.updatedAt.toISOString(),
@@ -87,10 +93,15 @@ export const taskUpdateShape = z
       .nullable()
       .optional()
       .describe("New maximum number of runs; null clears the cap"),
+    model: z
+      .enum(MODEL_CHOICES as [ModelType, ...ModelType[]])
+      .nullable()
+      .optional()
+      .describe("Model to run this task on; null falls back to the app default"),
   })
   // Unknown keys are stripped, so a junk-only body lands here as `{}`.
   .refine((update) => Object.keys(update).length > 0, {
-    message: "Provide at least one of prompt, schedule or limit",
+    message: "Provide at least one of prompt, schedule, limit or model",
   });
 
 export type TaskUpdate = z.infer<typeof taskUpdateShape>;
@@ -100,4 +111,7 @@ export const applyTaskUpdate = (task: TaskDocument, update: TaskUpdate): void =>
   if (update.prompt !== undefined) task.prompt = update.prompt;
   if (update.schedule !== undefined) task.schedule = update.schedule;
   if (update.limit !== undefined) task.set("limit", update.limit ?? undefined);
+  // `undefined` unsets the field, so null falls back to the app default rather
+  // than storing a value the enum would reject.
+  if (update.model !== undefined) task.set("agentModel", update.model ?? undefined);
 };

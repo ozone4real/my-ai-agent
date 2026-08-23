@@ -3,6 +3,7 @@ import type { Types } from "mongoose";
 import ApplicationJob, { JobQueueName } from "./application_job.js";
 import { TaskModel } from "../models/task.js";
 import { Agent, type AgentMessage, type AgentToolCall } from "../agents/index.js";
+import type { ModelType } from "../agents/model_types.js";
 import { STATUSES, TaskRunModel } from "../models/task_run.js";
 
 type Status = (typeof STATUSES)[number]
@@ -60,7 +61,11 @@ export default class AgenticJob extends ApplicationJob {
     // held open for a whole generation is what gets cut mid-flight
     // ("TypeError: terminated", cause ECONNRESET) — a failure the SDK cannot
     // retry once the stream has started. A single response can be retried.
-    const agent = await Agent.withSettings({ streaming: false })
+    const agent = await Agent.withSettings({
+      // undefined falls through to the app default inside withSettings.
+      model: task.agentModel as ModelType | undefined,
+      streaming: false,
+    })
     // Default failed: anything that escapes the try isn't a success.
     let status: Status = "failed"
     let failure: string | null = null

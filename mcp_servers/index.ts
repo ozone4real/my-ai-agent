@@ -4,6 +4,7 @@ import { z } from "zod";
 // Explicit .js extension: tsconfig.node.json compiles this directory with
 // NodeNext resolution, which follows the ESM spec and won't guess extensions.
 // The path stays .js even though the source is .ts — it names the emitted file.
+import { MODEL_CHOICES, ModelType } from "../host/server/agents/model_types.js";
 import servers_definition from "./servers_definition.js";
 import { connectDB } from "../host/server/db.js";
 import { TaskModel } from "../host/server/models/task.js";
@@ -57,6 +58,12 @@ export const scheduleTask = server.tool(
         .string()
         .optional()
         .describe("Id of the conversation this task came out of, when there is one."),
+      model: z
+        .enum(MODEL_CHOICES as [ModelType, ...ModelType[]])
+        .optional()
+        .describe(
+          "Model to run this task on. Omit unless the user asked for a specific one — otherwise the app default applies, and it can be changed later without touching the task."
+        ),
     }),
     // Writes a row, so it is neither read-only nor safe to retry blindly.
     // Not destructive: it only ever creates, never overwrites.
@@ -68,7 +75,7 @@ export const scheduleTask = server.tool(
     },
     outputSchema: taskShape,
   },
-  async ({ prompt, schedule, limit, sourceConversation }) => {
+  async ({ prompt, schedule, limit, sourceConversation, model }) => {
     // Idempotent and cached in db.ts, so calling it per invocation costs
     // nothing after the first and keeps the module importable when Mongo is
     // down — connecting at import time would take the whole server with it.
@@ -88,6 +95,7 @@ export const scheduleTask = server.tool(
         schedule,
         creator: "assistant",
         ...(limit !== undefined && { limit }),
+        ...(model !== undefined && { agentModel: model }),
         ...(sourceConversation && { sourceConversation }),
       });
 

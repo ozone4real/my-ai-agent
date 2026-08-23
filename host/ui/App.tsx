@@ -22,6 +22,7 @@ import { describeStep } from "./steps";
 import { SettingsPane } from "./SettingsPane";
 import { TaskDetail } from "./TaskDetail";
 import { Elicitation } from "./Elicitation";
+import { getSettings } from "./api";
 import { useArmedAction } from "./useArmedAction";
 
 interface Message {
@@ -234,6 +235,22 @@ export function App() {
   const [savingTask, setSavingTask] = useState(false);
   const [taskSaveError, setTaskSaveError] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+
+  /**
+   * Model ids for the composer's picker, and the thread's own model once one
+   * is open. Settings supplies the list so the UI never hardcodes it.
+   */
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  /**
+   * Model the next turn runs on. "" means let Settings decide.
+   *
+   * Seeded from the thread when one loads, and sent with every turn — the
+   * server switches the thread to it, so changing it here changes the thread.
+   */
+  const [chosenModel, setChosenModel] = useState("");
+
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
   /**
    * Which thread is in `messages`. The load effect skips when it matches the
    * URL, so a mid-stream navigation doesn't refetch and wipe the live reply.
@@ -245,6 +262,20 @@ export function App() {
   activeIdRef.current = activeId;
   taskIdRef.current = taskId;
   const [input, setInput] = useState("");
+
+  /**
+   * Grow the composer to fit what's typed, up to a cap.
+   *
+   * Height is reset to `auto` first: `scrollHeight` only ever grows against a
+   * fixed height, so without the reset the box could never shrink back. The cap
+   * is in CSS as `max-height`, and `overflow-y: auto` takes over beyond it.
+   */
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [input]);
 
   // Picking anything in the drawer navigates, so close it on every route change
   // rather than wiring a handler onto each row.
@@ -280,6 +311,14 @@ export function App() {
   useEffect(() => {
     void refreshConversations();
   }, [refreshConversations]);
+
+  // The model list, fetched once. A failure just leaves the picker empty —
+  // omitting a model is valid, so the app still works without it.
+  useEffect(() => {
+    getSettings()
+      .then((settings) => setAvailableModels(settings.availableModels))
+      .catch(() => setAvailableModels([]));
+  }, []);
 
   // Only when the pane is opened.
   useEffect(() => {
@@ -434,6 +473,7 @@ export function App() {
         // Claimed only once the messages land: claiming up front breaks under
         // StrictMode, whose second pass then skips the fetch entirely.
         loadedIdRef.current = activeId;
+        setChosenModel(detail.model ?? "");
         setMessages(
           detail.messages.map((m) => ({
             id: m.id,
@@ -562,7 +602,9 @@ export function App() {
             })),
         },
         // undefined on a fresh thread → POST /conversations.
-        activeId ?? undefined
+        activeId ?? undefined,
+        // Switches the thread when it already exists.
+        chosenModel || undefined
       );
     } catch (err) {
       if ((err as Error)?.name !== "AbortError") {
@@ -835,25 +877,45 @@ export function App() {
 
           <div className="composer">
             <textarea
+              ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
               placeholder="Send a message…  (Enter to send, Shift+Enter for newline)"
-              rows={2}
+              rows={1}
             />
-            {busy ? (
-              <button className="btn stop" onClick={stop}>
-                Stop
-              </button>
-            ) : (
-              <button
-                className="btn send"
-                onClick={() => void submit()}
-                disabled={!input.trim()}
-              >
-                Send
-              </button>
-            )}
+            {/* Controls sit under the input so neither takes width from it. The
+                model applies from the next turn, on a new thread or an old one. */}
+            <div className="composer-toolbar">
+              {availableModels.length > 0 && (
+                <select
+                  className="composer-model-select"
+                  value={chosenModel}
+                  onChange={(e) => setChosenModel(e.target.value)}
+                  title="Model for the next message"
+                >
+                  <option value="">Default model</option>
+                  {availableModels.map((id) => (
+                    <option key={id} value={id}>
+                      {id}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {busy ? (
+                <button className="btn stop" onClick={stop}>
+                  Stop
+                </button>
+              ) : (
+                <button
+                  className="btn send"
+                  onClick={() => void submit()}
+                  disabled={!input.trim()}
+                >
+                  Send
+                </button>
+              )}
+            </div>
           </div>
           </>
         )}

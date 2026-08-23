@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { Transcript } from "./Transcript";
 import type { TaskRun, TaskUpdate, TaskWithRuns } from "./api";
 import { useArmedAction } from "./useArmedAction";
-import { runTaskNow } from "./api";
+import { getSettings, runTaskNow } from "./api";
 
 /** Full timestamp — a run's history is exactly where the date matters. */
 function formatStamp(iso: string): string {
@@ -71,13 +71,24 @@ export function TaskDetail({
   const [schedule, setSchedule] = useState(task.schedule);
   // Kept as a string so the field can be emptied — "" means unlimited.
   const [limit, setLimit] = useState(task.limit === null ? "" : String(task.limit));
+  /** "" means fall back to the app default. */
+  const [model, setModel] = useState(task.model ?? "");
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
 
   // Re-seed when a different task is shown, or after a save changes the values.
   useEffect(() => {
     setPrompt(task.prompt);
     setSchedule(task.schedule);
     setLimit(task.limit === null ? "" : String(task.limit));
-  }, [task.id, task.prompt, task.schedule, task.limit]);
+    setModel(task.model ?? "");
+  }, [task.id, task.prompt, task.schedule, task.limit, task.model]);
+
+  // Settings owns the list, so a new model appears here without a change.
+  useEffect(() => {
+    getSettings()
+      .then((settings) => setAvailableModels(settings.availableModels))
+      .catch(() => setAvailableModels([]));
+  }, []);
 
   const parsedLimit = limit.trim() === "" ? null : Number(limit);
   const limitValid =
@@ -89,12 +100,15 @@ export function TaskDetail({
   if (prompt !== task.prompt) changes.prompt = prompt;
   if (schedule !== task.schedule) changes.schedule = schedule;
   if (parsedLimit !== task.limit) changes.limit = parsedLimit;
+  // "" clears the override; the endpoint reads null as "use the app default".
+  if ((model || null) !== task.model) changes.model = model || null;
   const dirty = Object.keys(changes).length > 0;
 
   const cancel = () => {
     setPrompt(task.prompt);
     setSchedule(task.schedule);
     setLimit(task.limit === null ? "" : String(task.limit));
+    setModel(task.model ?? "");
     setEditing(false);
   };
 
@@ -137,6 +151,12 @@ export function TaskDetail({
             <span>{task.limit === null ? "unlimited runs" : `max ${task.limit} runs`}</span>
             <span>·</span>
             <span>created by {task.creator}</span>
+            {task.model && (
+              <>
+                <span>·</span>
+                <code>{task.model}</code>
+              </>
+            )}
           </div>
         </div>
         <div className="task-actions">
@@ -217,6 +237,22 @@ export function TaskDetail({
             {!limitValid && (
               <span className="field-error">Must be a whole number above zero.</span>
             )}
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor="task-model">Model</label>
+            <span className="field-hint">
+              Runs of this task use it. Leave on the default to follow Settings —
+              a cheaper model is often enough for work that mostly reads and clicks.
+            </span>
+            <select id="task-model" value={model} onChange={(e) => setModel(e.target.value)}>
+              <option value="">App default</option>
+              {availableModels.map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
           </div>
 
           {saveError && <div className="error">{saveError}</div>}

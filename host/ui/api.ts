@@ -86,6 +86,8 @@ export interface Task {
   schedule: string;
   /** Max number of runs; null means unlimited. */
   limit: number | null;
+  /** Model this task's runs use; null means the app default. */
+  model: string | null;
   sourceConversation: string | null;
   createdAt: string;
   updatedAt: string;
@@ -133,6 +135,8 @@ export interface TaskUpdate {
   schedule?: string;
   /** null clears the cap; undefined leaves it alone. */
   limit?: number | null;
+  /** null falls back to the app default; undefined leaves it alone. */
+  model?: string | null;
 }
 
 /** Updates a task. Omitted fields are left as they are. */
@@ -276,6 +280,8 @@ export interface ConversationDetail {
   id: string;
   createdAt: string;
   messages: StoredMessage[];
+  /** Model this thread runs on; null means the app default. */
+  model?: string | null;
 }
 
 /** Newest thread first. */
@@ -313,7 +319,13 @@ export async function getConversation(
 export async function sendChat(
   message: string,
   handlers: ChatHandlers = {},
-  conversationId?: string
+  conversationId?: string,
+  /**
+   * Model to run this turn on. On an existing thread it also switches the
+   * thread, so later turns keep using it without resending. Omit to keep
+   * whatever the thread already uses.
+   */
+  model?: string
 ): Promise<string> {
   const url = conversationId
     ? `${ENDPOINT}/${encodeURIComponent(conversationId)}/messages`
@@ -325,8 +337,9 @@ export async function sendChat(
       "content-type": "application/json",
       accept: "text/event-stream",
     },
-    // Both routes validate a `{ message }` body.
-    body: JSON.stringify({ message }),
+    // Both routes take `{ message, model? }`; on an existing thread the model
+    // switches it from this turn on.
+    body: JSON.stringify({ message, ...(model ? { model } : {}) }),
     signal: handlers.signal,
   });
 

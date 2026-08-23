@@ -3,12 +3,13 @@
 
 import mongoose from "mongoose";
 import type { Model, InferSchemaType, HydratedDocument } from "mongoose";
-import { ModelType } from "../agents/models.js";
+// The leaf module, not agents/models.js: importing the class maps would pull
+// the whole LangChain runtime into anything that reads settings.
+import { MODEL_CHOICES, ModelType } from "../agents/model_types.js";
+export { MODEL_CHOICES };
 
 /** The one and only settings document. */
 const SINGLETON_KEY = "app";
-
-export const MODEL_CHOICES = Object.values(ModelType);
 
 const settingsSchema = new mongoose.Schema(
   {

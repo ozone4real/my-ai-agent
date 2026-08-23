@@ -8,6 +8,8 @@ import type {
 } from "mongoose";
 import { CronExpressionParser } from "cron-parser";
 import ApplicationJob from "../jobs/application_job.js";
+// Leaf module — keeps LangChain out of the app MCP server, which imports this.
+import { MODEL_CHOICES } from "../agents/model_types.js";
 
 export const CREATORS = ["user", "assistant"] as const;
 
@@ -27,6 +29,20 @@ const TaskSchema = new mongoose.Schema(
     prompt: {
       type: String,
       required: true,
+    },
+    /**
+     * Model this task's runs use. Unset means Settings decides at run time.
+     *
+     * Named `agentModel`, not `model`: a schema path called `model` shadows
+     * Mongoose's own `doc.model()`. The API still calls it `model`.
+     *
+     * Worth setting per task: a nightly job that mostly reads and clicks does
+     * not need the model an interactive session wants, and the bill is per run.
+     */
+    agentModel: {
+      type: String,
+      required: false,
+      enum: MODEL_CHOICES,
     },
     schedule: {
       type: String,
