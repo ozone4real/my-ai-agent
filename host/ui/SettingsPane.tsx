@@ -3,11 +3,21 @@ import { getSettings, resetSettings, updateSettings, type Settings } from "./api
 import { useArmedAction } from "./useArmedAction";
 
 /** A model id rendered for humans: "claude-sonnet-4-8" -> "Claude Sonnet 4 8". */
+/** OpenRouter marks its no-cost variants with this suffix on the model id. */
+const isFreeModel = (id: string) => id.endsWith(":free");
+
 function modelLabel(id: string): string {
-  return id
+  // OpenRouter ids are `vendor/model`; the vendor is the useful half to keep,
+  // so title-case the model part and leave the rest alone.
+  const [vendor, model] = id.includes("/") ? id.split("/") : [null, id];
+  const name = model
+    .replace(/:free$/, "")
     .split("-")
     .map((part) => (part.length > 2 ? part[0].toUpperCase() + part.slice(1) : part))
     .join(" ");
+
+  const label = vendor ? `${vendor} · ${name}` : name;
+  return isFreeModel(id) ? `${label} (free)` : label;
 }
 
 export function SettingsPane() {
@@ -147,6 +157,14 @@ export function SettingsPane() {
             </option>
           ))}
         </select>
+        {isFreeModel(draft.defaultModel) && (
+          <span className="field-hint">
+            Free models are rate limited by request, not metered by tokens — one
+            agent run can use many calls, so expect to hit the cap mid-run. Their
+            providers generally keep prompts for training, so avoid them for
+            anything involving your CV or personal details.
+          </span>
+        )}
       </label>
 
       {error && <div className="error">{error}</div>}

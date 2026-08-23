@@ -8,6 +8,20 @@ export default class SSEStream {
     this.req = req
   }
 
+  /**
+   * Send a frame that did not come from the generator.
+   *
+   * The generator only yields between agent steps, but an elicitation happens
+   * *inside* a tool call — there is no yield to hang it on. This lets the run
+   * push one out of band. Silent once the response is finished: a closed
+   * connection is the normal end of a turn, not an error.
+   */
+  send(res: Response, event: string, data: unknown): boolean {
+    if (res.writableEnded) return false;
+    res.write(this.format(event, data));
+    return true;
+  }
+
   async stream(res: Response, input: any[], streamCallback: (...args: any) => AsyncGenerator<any>, doneCallback: (args: any) => Promise<void>, meta?: Record<string, unknown>) {
     res.set({
       "content-type": "text/event-stream",

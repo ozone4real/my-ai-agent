@@ -8,8 +8,11 @@ import {
   getTask,
   listConversations,
   listTasks,
+  answerElicitation,
   sendChat,
   updateTask,
+  type ElicitationAnswer,
+  type ElicitationRequest,
   type ConversationSummary,
   type Task,
   type TaskUpdate,
@@ -18,6 +21,7 @@ import {
 import { describeStep } from "./steps";
 import { SettingsPane } from "./SettingsPane";
 import { TaskDetail } from "./TaskDetail";
+import { Elicitation } from "./Elicitation";
 import { useArmedAction } from "./useArmedAction";
 
 interface Message {
@@ -38,6 +42,13 @@ interface Message {
   reasoningMs?: number;
   /** Set on the first reasoning chunk, cleared when the turn ends. */
   reasoningStartedAt?: number;
+  /**
+   * A question the agent is blocked on. The turn stays open until it is
+   * answered, so this replaces the status line while it is set.
+   */
+  elicitation?: ElicitationRequest;
+  /** True while the answer is in flight, to stop a double submit. */
+  answeringElicitation?: boolean;
 }
 
 const newId = () =>
@@ -362,6 +373,38 @@ export function App() {
     [busy, navigate]
   );
 
+  /**
+   * Answer a question and release the blocked turn.
+   *
+   * The reply goes on a *separate* request — the turn's own connection is busy
+   * streaming and is what receives whatever the agent does next.
+   */
+  const answerQuestion = useCallback(
+    async (messageId: string, request: ElicitationRequest, answer: ElicitationAnswer) => {
+      const conversationId = activeIdRef.current;
+      if (!conversationId) return;
+
+      patchMessage(messageId, (m) => ({ ...m, answeringElicitation: true }));
+      try {
+        await answerElicitation(conversationId, request.id, answer);
+        // Clear on success only: if it failed the question may still be live.
+        patchMessage(messageId, (m) => ({
+          ...m,
+          elicitation: undefined,
+          answeringElicitation: false,
+          status: "Continuing…",
+        }));
+      } catch (err) {
+        patchMessage(messageId, (m) => ({
+          ...m,
+          answeringElicitation: false,
+          error: (err as Error)?.message ?? "Could not send the answer",
+        }));
+      }
+    },
+    []
+  );
+
   // Update a single message in place by id.
   const patchMessage = useCallback(
     (id: string, fn: (m: Message) => Message) => {
@@ -501,6 +544,15 @@ export function App() {
               reasoningMs: m.reasoningStartedAt
                 ? Date.now() - m.reasoningStartedAt
                 : m.reasoningMs,
+            })),
+          // The agent is blocked mid-tool-call. Drop the status line — the
+          // form is now the live thing — and keep the turn's stream open.
+          onElicitation: (request) =>
+            patchMessage(assistantId, (m) => ({
+              ...m,
+              elicitation: request,
+              answeringElicitation: false,
+              status: undefined,
             })),
           onError: (message) =>
             patchMessage(assistantId, (m) => ({
@@ -737,6 +789,17 @@ export function App() {
                             ...prev,
                             reasoningOpen: !prev.reasoningOpen,
                           }))
+                        }
+                      />
+                    )}
+
+                    {/* Blocks the turn until answered — show it above the status. */}
+                    {m.elicitation && (
+                      <Elicitation
+                        request={m.elicitation}
+                        answering={Boolean(m.answeringElicitation)}
+                        onAnswer={(answer) =>
+                          void answerQuestion(m.id, m.elicitation!, answer)
                         }
                       />
                     )}

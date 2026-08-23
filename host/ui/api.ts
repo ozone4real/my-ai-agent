@@ -190,9 +190,53 @@ export type AgentStreamEventPayload =
   | { phase: "working"; content: AgentToolCall }
   | { phase: "done"; content: string };
 
+/** A question the agent needs answered before it can carry on. */
+export interface ElicitationRequest {
+  id: string;
+  message: string;
+  /** JSON Schema for the answer. The form is built from this. */
+  requestedSchema: {
+    type?: string;
+    properties?: Record<string, { type?: string; description?: string; enum?: string[] }>;
+    required?: string[];
+  };
+  mode?: string;
+  url?: string;
+}
+
+export type ElicitationAnswer =
+  | { action: "accept"; content: Record<string, unknown> }
+  | { action: "decline" }
+  | { action: "cancel" };
+
+/**
+ * Answer a question. The turn that asked is still open on its own connection,
+ * blocked mid-tool-call; this releases it.
+ */
+export async function answerElicitation(
+  conversationId: string,
+  elicitationId: string,
+  answer: ElicitationAnswer
+): Promise<void> {
+  const res = await fetch(
+    `${ENDPOINT}/${encodeURIComponent(conversationId)}/elicitations/${encodeURIComponent(elicitationId)}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(answer),
+    }
+  );
+  if (!res.ok) throw new Error(await readError(res));
+}
+
 export interface ChatHandlers {
   /** A tool call — render as transient status, not as the reply. */
   onStep?: (call: AgentToolCall) => void;
+  /**
+   * The agent is blocked on a question. Fires mid-turn, out of band with the
+   * token stream; the turn stays open until it is answered or times out.
+   */
+  onElicitation?: (request: ElicitationRequest) => void;
   /**
    * A piece of the model's thinking. Append these in order; the server has
    * already batched them, so one call is one visible update.
@@ -364,6 +408,9 @@ async function readSseStream(
             }
             break;
           }
+          case "elicitation":
+            if (payload?.id) handlers.onElicitation?.(payload as ElicitationRequest);
+            break;
           case "error":
             handlers.onError?.(
               typeof payload === "string" ? payload : payload?.message ?? "Error"

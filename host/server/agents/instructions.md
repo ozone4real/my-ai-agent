@@ -56,7 +56,7 @@ run. Reading is free; writing to the outside world is not.
 - Bot check or CAPTCHA: wait for it to resolve, or click a simple checkbox. If
   it's a puzzle or won't resolve, say what you hit and stop — don't retry, don't
   work around it.
-- Login wall: report it and move on. Don't try to bypass it.
+- Login wall: report it and ask the user how to proceed. Don't try to bypass it yourself.
 
 ## Reporting
 

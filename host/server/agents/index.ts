@@ -6,9 +6,11 @@ import type { LLMConfig } from "@mcp-use/agent";
 import type { BaseMessage } from "@mcp-use/agent/langchain";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatDeepSeek } from "@langchain/deepseek";
+import { ChatOpenRouter } from "@langchain/openrouter";
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { MCPClient } from "@mcp-use/client";
 import ServersDefinition, { SERVER_TOOL_ALLOWLIST } from "../../../mcp_servers/servers_definition.js";
+import { handleElicitation } from "../services/elicitation.js";
 import { convert, serialize, toLangChainHistory } from "./message_converters/chat.js";
 import type { ChatMessage, LangChainMessage } from "./message_converters/chat.js";
 
@@ -120,7 +122,7 @@ const OPERATING_INSTRUCTIONS = (() => {
 
 export class Agent {
   public agent: MCPAgent
-  private llm: ChatDeepSeek | ChatAnthropic
+  private llm: ChatDeepSeek | ChatAnthropic | ChatOpenRouter
 
   public mcpServers: Record<string, MCPServerConfig> = ServersDefinition
 
@@ -136,7 +138,20 @@ export class Agent {
    * message, tool bindings and history, so per-conversation
    * `additionalInstructions` still work.
    */
-  private static sharedClient = new MCPClient({ mcpServers: ServersDefinition })
+  private static sharedClient = new MCPClient({
+    mcpServers: {
+      ...ServersDefinition,
+      // Only our own server may put a question to the user. A tool can answer a
+      // call with "input required"; the client collects the answer and retries
+      // the call itself, so the agent only ever sees the finished result — see
+      // services/elicitation.ts for who gets asked.
+      //
+      // Set here rather than in servers_definition so that file stays free of
+      // host imports, and rather than as a client-wide default so a third-party
+      // server can't prompt your users.
+      app: { ...ServersDefinition.app, onElicitation: handleElicitation },
+    },
+  })
 
   /** Memoised so concurrent first requests connect once, not once each. */
   private static sessions: Promise<unknown> | null = null
@@ -166,12 +181,12 @@ export class Agent {
     userInstructions,
     streaming = true,
   }: AgentOptions = {}) {
-    // ChatDeepSeek and ChatAnthropic declare unrelated constructor signatures,
-    // so TypeScript refuses to construct the union (TS2351). The fields passed
-    // below are common to both, which is all the cast asserts.
+    // The model classes declare unrelated constructor signatures, so TypeScript
+    // refuses to construct the union (TS2351). The fields passed below are
+    // common to all of them, which is all the cast asserts.
     const Model = MODELS[model] as new (
       fields: ConstructorParameters<typeof ChatDeepSeek>[0]
-    ) => ChatDeepSeek | ChatAnthropic
+    ) => ChatDeepSeek | ChatAnthropic | ChatOpenRouter
 
     const apiKeyEnv = MODEL_API_KEY_ENV[model]
     if (!apiKeyEnv) throw new Error(`No API key configured for model ${model}`)

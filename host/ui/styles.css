@@ -1237,3 +1237,36 @@ body {
   color: var(--muted);
   font-size: 13px;
 }
+
+/* A question the agent is blocked on. Sits inside the assistant bubble and
+   holds the turn open until answered, so it reads as active, not as content. */
+.elicitation {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 6px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--user);
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+
+.elicitation-message {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.elicitation .field { gap: 4px; }
+.elicitation textarea,
+.elicitation select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.elicitation-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

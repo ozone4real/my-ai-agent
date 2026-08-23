@@ -84,6 +84,7 @@ export default {
       // Opts out of Google usage statistics, which otherwise run in a separate
       // watchdog process costing ~140MB.
       "--usageStatistics=false",
+      "--autoConnect"
     ],
     // Without a negotiated root, chrome-devtools-mcp confines file paths to the
     // OS temp directory, so `upload_file` rejects anything in the sandbox with

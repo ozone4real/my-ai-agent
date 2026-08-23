@@ -5,9 +5,48 @@ import { createConversationSchema, createMessageSchema } from "./schemas/convers
 import { Author, Message, MessageDocument, MessageModel } from "../models/message"
 import { Agent, AgentMessage, AgentStreamEventPayload, AgentStreamPayload } from "../agents";
 import SSEStream from "../services/sse_stream"
+import {
+  cancelElicitations,
+  resolveElicitation,
+  withElicitationChannel,
+  type ElicitationAnswer,
+  type ElicitationRequest,
+} from "../services/elicitation"
 import { ClientSession, Document, Types } from "mongoose"
 
 const router = Router()
+
+/**
+ * Stream a turn, with any question the agent raises routed to this response.
+ *
+ * The channel is installed for the duration of the run, so a tool call deep in
+ * the agent loop reaches *this* browser rather than another concurrent run's.
+ */
+const streamTurn = async (
+  sse: SSEStream,
+  res: Response,
+  input: any[],
+  generator: (...args: any) => AsyncGenerator<any>,
+  done: (data: AgentStreamEventPayload | undefined) => Promise<void>,
+  meta?: Record<string, unknown>
+) => {
+  const asked = new Set<string>()
+
+  // A closed connection can never answer, so release the run rather than let it
+  // sit out the timeout. Registered before the first question can be asked.
+  res.on("close", () => cancelElicitations(asked))
+
+  const channel = {
+    ask(request: ElicitationRequest) {
+      asked.add(request.id)
+      if (!sse.send(res, "elicitation", request)) {
+        throw new Error("client disconnected before the question could be delivered")
+      }
+    },
+  }
+
+  await withElicitationChannel(channel, () => sse.stream(res, input, generator, done, meta))
+}
 
 
 const createMessage = async(content: string, conversation: Document, session: ClientSession | null, author: string = "user") => {
@@ -140,7 +179,7 @@ router.post("/", async (req: Request, res: Response) => {
   const sse = new SSEStream(req)
   // Bound, or `this` is undefined inside the generator. `input` is spread as
   // the generator's arguments, so it must be an argument list.
-  await sse.stream(res, [params.message], agent.streamEvents.bind(agent), async (data: AgentStreamEventPayload | undefined) => {
+  await streamTurn(sse, res, [params.message], agent.streamEvents.bind(agent), async (data: AgentStreamEventPayload | undefined) => {
      // Only the terminal payload carries the reply text; "working" payloads are steps.
     if (data?.phase !== "done") return
     await createMessage(String(data.content), conversation, null, "assistant")
@@ -186,11 +225,41 @@ router.post("/:conversation_id/messages", async(req: Request, res: Response) => 
 
   const sse = new SSEStream(req)
 
-  await sse.stream(res, [params.message, history], agent.streamEvents.bind(agent), async (data: AgentStreamEventPayload | undefined) => {
+  await streamTurn(sse, res, [params.message, history], agent.streamEvents.bind(agent), async (data: AgentStreamEventPayload | undefined) => {
      // Only the terminal payload carries the reply text; "working" payloads are steps.
     if (data?.phase !== "done") return
     await createMessage(String(data.content), conversation, null, "assistant")
   })
+})
+
+/**
+ * Answer a question the agent asked mid-run.
+ *
+ * The turn is still open on its own SSE connection, blocked inside the tool
+ * call that asked. Resolving here unblocks it; this request just acknowledges.
+ */
+router.post("/:conversation_id/elicitations/:elicitation_id", async (req: Request, res: Response) => {
+  const answer = req.body as Partial<ElicitationAnswer>
+
+  if (["acccept", "decline", "cancel"].includes(answer?.action!)) {
+    res.status(400).json({ error: "action must be one of: accept, decline, cancel" })
+    return
+  }
+
+  if (answer.action === "accept" && (typeof answer.content !== "object" || answer.content === null)) {
+    res.status(400).json({ error: "an accepted answer needs a content object" })
+    return
+  }
+
+  // False means it already timed out, was answered, or the run has gone. Not an
+  // error the user can act on, but they should know the answer went nowhere.
+  const delivered = resolveElicitation(String(req.params.elicitation_id), answer as ElicitationAnswer)
+  if (!delivered) {
+    res.status(409).json({ error: "This question is no longer waiting for an answer" })
+    return
+  }
+
+  res.json({ delivered: true })
 })
 
 export default router
