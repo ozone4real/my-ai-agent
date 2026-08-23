@@ -38,6 +38,8 @@ export enum ModelType {
   // cannot call them is useless here however cheap it is.
   //
   // Read the free-tier caveats on FREE_MODELS before making one a default.
+  OPEN_ROUTER_FREE_OX_ALPHA = "stealth/ox-alpha",
+  OPENROUTER_FREE_NEMOTRON_3_SUPER = "nvidia/nemotron-3-super-120b-a12b:free",
   OPENROUTER_FREE_NEMOTRON_ULTRA = "nvidia/nemotron-3-ultra-550b-a55b:free",
   OPENROUTER_FREE_NEMOTRON_LIGHTNING = "nvidia/nemotron-3.5-lightning:free",
   OPENROUTER_FREE_GEMMA_4_31B = "google/gemma-4-31b-it:free",
@@ -60,4 +62,6 @@ export const FREE_MODELS: ReadonlySet<ModelType> = new Set([
   ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA,
   ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING,
   ModelType.OPENROUTER_FREE_GEMMA_4_31B,
+  ModelType.OPENROUTER_FREE_NEMOTRON_3_SUPER,
+  ModelType.OPEN_ROUTER_FREE_OX_ALPHA
 ])

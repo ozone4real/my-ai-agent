@@ -120,6 +120,9 @@ export const MODELS = {
   [ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_FREE_GEMMA_4_31B]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_FREE_NEMOTRON_3_SUPER]: ResilientChatOpenRouter,
+  [ModelType.OPEN_ROUTER_FREE_OX_ALPHA]: ResilientChatOpenRouter
+
 }
 
 /**
@@ -146,4 +149,6 @@ export const MODEL_API_KEY_ENV: Record<ModelType, string> = {
   [ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA]: "OPENROUTER_API_KEY",
   [ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING]: "OPENROUTER_API_KEY",
   [ModelType.OPENROUTER_FREE_GEMMA_4_31B]: "OPENROUTER_API_KEY",
+  [ModelType.OPENROUTER_FREE_NEMOTRON_3_SUPER]: "OPENROUTER_API_KEY",
+  [ModelType.OPEN_ROUTER_FREE_OX_ALPHA]: "OPENROUTER_API_KEY",
 }
