@@ -1,4 +1,5 @@
 import  type { Request, Response } from "express";
+import { describeProviderError } from "../agents/provider_errors";
 
 export default class SSEStream {
   private req: Request
@@ -51,9 +52,12 @@ export default class SSEStream {
 
       if (!aborted) res.write(this.format("done", {}));
     } catch (err) {
-      // The client only ever sees a generic message, so log the real cause.
+      // The full error still goes to the log — the client gets the part it can
+      // do something about, which for an exhausted balance or a rate limit is
+      // "pick another model" rather than "Server error".
       console.error("SSE stream failed:", err)
-      if (!aborted) res.write(this.format("error", { message: "Server error" }))
+      const failure = describeProviderError(err)
+      if (!aborted) res.write(this.format("error", failure))
     } finally {
       res.end();
     }

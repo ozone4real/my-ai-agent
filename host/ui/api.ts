@@ -129,6 +129,27 @@ export async function getTask(
   return (await res.json()) as TaskWithRuns;
 }
 
+/** The fields required to create a task by hand. */
+export interface TaskCreate {
+  prompt: string;
+  schedule: string;
+  /** null or omitted means unlimited. */
+  limit?: number | null;
+  /** null or omitted uses the app default. */
+  model?: string | null;
+}
+
+/** Creates a task. It is recorded as the user's, not the agent's. */
+export async function createTask(task: TaskCreate): Promise<Task> {
+  const res = await fetch(TASKS_ENDPOINT, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(task),
+  });
+  if (!res.ok) throw new Error(await readError(res));
+  return (await res.json()) as Task;
+}
+
 /** The task fields a client may change. */
 export interface TaskUpdate {
   prompt?: string;

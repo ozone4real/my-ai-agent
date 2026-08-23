@@ -7,6 +7,7 @@ import {
   applyTaskUpdate,
   serializeTask,
   serializeTaskRun,
+  taskCreateShape,
   taskUpdateShape,
 } from "../serializers/task"
 
@@ -31,6 +32,42 @@ const findTask = async (rawId: unknown, res: Response) => {
 router.get("/", async (_req: Request, res: Response) => {
   const tasks = await TaskModel.find().sort({ createdAt: -1 })
   res.json({ tasks: tasks.map(serializeTask) })
+})
+
+/**
+ * Create a task by hand, as opposed to the agent's `schedule-task` tool.
+ *
+ * Recorded with `creator: "user"`, which is what keeps the agent from editing
+ * or deleting it later. The post-save hook registers the cron with BullMQ and
+ * throws if that fails, so a 201 means the task is genuinely scheduled.
+ */
+router.post("/", async (req: Request, res: Response) => {
+  // safeParse: Express 5 turns a thrown ZodError into a 500.
+  const parsed = taskCreateShape.safeParse(req.body)
+  if (!parsed.success) {
+    res.status(400).json({
+      error: parsed.error.issues.map((i) => i.message).join("; "),
+    })
+    return
+  }
+
+  const { prompt, schedule, limit, model } = parsed.data
+  try {
+    const task = await TaskModel.create({
+      prompt,
+      schedule,
+      creator: "user",
+      // Omitted rather than null: the enum would reject null, and an unset
+      // field is what "use the app default" means to the reader.
+      ...(limit != null && { limit }),
+      ...(model != null && { agentModel: model }),
+    })
+    res.status(201).json(serializeTask(task))
+  } catch (err) {
+    // A bad cron fails validation here, and a scheduler that won't register
+    // fails in the post-save hook — both are the client's to fix.
+    res.status(400).json({ error: err instanceof Error ? err.message : String(err) })
+  }
 })
 
 router.get("/:task_id", async (req: Request, res: Response) => {

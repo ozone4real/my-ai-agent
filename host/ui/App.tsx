@@ -21,6 +21,7 @@ import {
 import { describeStep } from "./steps";
 import { SettingsPane } from "./SettingsPane";
 import { TaskDetail } from "./TaskDetail";
+import { NewTask } from "./NewTask";
 import { Elicitation } from "./Elicitation";
 import { getSettings } from "./api";
 import { useArmedAction } from "./useArmedAction";
@@ -202,6 +203,8 @@ interface Route {
   pane: Pane;
   conversationId: string | null;
   taskId: string | null;
+  /** /tasks/new — the create form. Not a task id, so `taskId` stays null. */
+  newTask: boolean;
 }
 
 /**
@@ -210,18 +213,22 @@ interface Route {
  */
 function parseRoute(pathname: string): Route {
   const [, head, id] = pathname.split("/");
-  if (head === "settings") return { pane: "settings", conversationId: null, taskId: null };
-  if (head === "tasks") return { pane: "tasks", conversationId: null, taskId: id || null };
-  if (head === "conversations" && id) {
-    return { pane: "chats", conversationId: id, taskId: null };
+  const base = { conversationId: null, taskId: null, newTask: false };
+  if (head === "settings") return { ...base, pane: "settings" };
+  if (head === "tasks") {
+    if (id === "new") return { ...base, pane: "tasks", newTask: true };
+    return { ...base, pane: "tasks", taskId: id || null };
   }
-  return { pane: "chats", conversationId: null, taskId: null };
+  if (head === "conversations" && id) {
+    return { ...base, pane: "chats", conversationId: id };
+  }
+  return { ...base, pane: "chats" };
 }
 
 export function App() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const { pane, conversationId: activeId, taskId } = useMemo(
+  const { pane, conversationId: activeId, taskId, newTask } = useMemo(
     () => parseRoute(pathname),
     [pathname]
   );
@@ -707,9 +714,14 @@ export function App() {
               New
             </button>
           ) : (
-            <button className="btn new" onClick={() => void refreshTasks()}>
-              Refresh
-            </button>
+            <div className="sidebar-head-actions">
+              <button className="btn" onClick={() => void refreshTasks()}>
+                Refresh
+              </button>
+              <button className="btn new" onClick={() => navigate("/tasks/new")}>
+                New
+              </button>
+            </div>
           )}
         </div>
 
@@ -742,7 +754,8 @@ export function App() {
           <div className="conversation-list">
             {tasks.length === 0 && !listError && (
               <div className="sidebar-empty">
-                No scheduled tasks. The agent creates them with its
+                No scheduled tasks yet. Create one with <strong>New</strong>, or
+                ask the agent to — it schedules them with its
                 <code> schedule-task </code> tool.
               </div>
             )}
@@ -772,7 +785,9 @@ export function App() {
             {pane === "settings"
               ? "Preferences"
               : pane === "tasks"
-              ? activeTask
+              ? newTask
+                ? "New task"
+                : activeTask
                 ? `Task ${activeTask.id.slice(-6)}`
                 : "Scheduled tasks"
               : activeId
@@ -787,13 +802,22 @@ export function App() {
           </div>
         ) : pane === "tasks" ? (
           <div className="messages">
-            {loadingTask && <div className="empty">Loading task…</div>}
-            {!loadingTask && !activeTask && (
+            {newTask && (
+              <NewTask
+                onCreated={(task) => {
+                  void refreshTasks();
+                  navigate(`/tasks/${task.id}`);
+                }}
+                onCancel={() => navigate("/tasks")}
+              />
+            )}
+            {!newTask && loadingTask && <div className="empty">Loading task…</div>}
+            {!newTask && !loadingTask && !activeTask && (
               <div className="empty">
                 Pick a task to see its schedule and run history.
               </div>
             )}
-            {!loadingTask && activeTask && (
+            {!newTask && !loadingTask && activeTask && (
               <TaskDetail
                 task={activeTask}
                 deleting={deletingId === activeTask.id}

@@ -104,6 +104,41 @@ export const taskUpdateShape = z
     message: "Provide at least one of prompt, schedule, limit or model",
   });
 
+/**
+ * What a client may supply when creating a task by hand.
+ *
+ * `creator` is not here: a task made through this shape is by definition the
+ * user's, and the distinction is what stops the agent editing tasks it didn't
+ * make. `sourceConversation` is likewise absent — a hand-made task has no
+ * conversation behind it.
+ */
+export const taskCreateShape = z.object({
+  prompt: z
+    .string()
+    .min(1)
+    .max(10000)
+    .describe("The instruction to run the agent with when the task fires"),
+  schedule: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe("Cron expression for when to run, e.g. '0 9 * * 1'"),
+  limit: z
+    .number()
+    .int()
+    .positive()
+    .nullable()
+    .optional()
+    .describe("Maximum number of runs; null or omitted means unlimited"),
+  model: z
+    .enum(MODEL_CHOICES as [ModelType, ...ModelType[]])
+    .nullable()
+    .optional()
+    .describe("Model to run this task on; null or omitted uses the app default"),
+});
+
+export type TaskCreate = z.infer<typeof taskCreateShape>;
+
 export type TaskUpdate = z.infer<typeof taskUpdateShape>;
 
 /** Absent keys are left alone; `limit` is nullable so it can be cleared. */

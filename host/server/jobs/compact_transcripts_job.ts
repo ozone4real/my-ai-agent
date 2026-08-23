@@ -7,10 +7,10 @@
 
 import { Job, RepeatOptions } from "bullmq";
 import type { Types } from "mongoose";
-import { ChatDeepSeek } from "@langchain/deepseek";
 import ApplicationJob, { JobQueueName } from "./application_job.js";
 import { STATUSES, TaskRunModel } from "../models/task_run.js";
 import { ModelType } from "../agents/models.js";
+import { ChatOpenRouter } from "@langchain/openrouter";
 
 type Status = (typeof STATUSES)[number];
 
@@ -145,12 +145,10 @@ export default class CompactTranscriptsJob extends ApplicationJob {
    * schemas are ~92k tokens that would be re-sent on every call.
    */
   private async summarise(transcript: string): Promise<string> {
-    const { loadSettings } = await import("../models/settings.js");
-    const settings = await loadSettings();
 
-    const llm = new ChatDeepSeek({
-      model: (settings.defaultModel as ModelType) ?? ModelType.DEEPSEEK_V4_FLASH,
-      apiKey: process.env.DEEP_SEEK_API_KEY,
+    const llm = new ChatOpenRouter({
+      model: ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA,
+      apiKey: process.env.OPENROUTER_API_KEY,
       maxTokens: 1500,
     });
 

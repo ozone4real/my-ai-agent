@@ -6,6 +6,7 @@ import { Author, Message, MessageDocument, MessageModel } from "../models/messag
 import { Agent, AgentMessage, AgentStreamEventPayload, AgentStreamPayload } from "../agents";
 import type { ModelType } from "../agents/model_types.js";
 import SSEStream from "../services/sse_stream"
+import { describeProviderError } from "../agents/provider_errors"
 import {
   cancelElicitations,
   resolveElicitation,
@@ -49,6 +50,28 @@ const streamTurn = async (
   await withElicitationChannel(channel, () => sse.stream(res, input, generator, done, meta))
 }
 
+
+/**
+ * Run a turn without streaming, reporting a provider failure as JSON.
+ *
+ * Without this the error escapes to Express, which answers with an HTML page
+ * the UI's error reader can't parse — and whose text ("Server error") says
+ * nothing about the exhausted balance or rate limit that actually caused it.
+ * The streaming path gets the same treatment inside SSEStream.
+ */
+const runTurn = async (
+  res: Response,
+  turn: () => Promise<string>
+): Promise<string | null> => {
+  try {
+    return await turn()
+  } catch (err) {
+    console.error("Agent run failed:", err)
+    const failure = describeProviderError(err)
+    res.status(failure.status).json({ error: failure.message })
+    return null
+  }
+}
 
 const createMessage = async(content: string, conversation: Document, session: ClientSession | null, author: string = "user") => {
   const message = new MessageModel({ author, content, conversation: conversation._id })
@@ -181,7 +204,8 @@ router.post("/", async (req: Request, res: Response) => {
     model: (conversation.agentModel as ModelType | undefined) ?? undefined,
   })
   if(!SSEStream.wantsStream(req)) {
-    const reply = await agent.run(params.message)
+    const reply = await runTurn(res, () => agent.run(params.message))
+    if (reply === null) return
     await createMessage(reply, conversation, null, "assistant")
     // Without this return the handler fell through and `new SSEStream(req)`
     // threw, after the response had already been sent.
@@ -246,7 +270,8 @@ router.post("/:conversation_id/messages", async(req: Request, res: Response) => 
     model: (conversation.agentModel as ModelType | undefined) ?? undefined,
   })
   if (!SSEStream.wantsStream(req)) {
-    const reply = await agent.run(params.message, history)
+    const reply = await runTurn(res, () => agent.run(params.message, history))
+    if (reply === null) return
     await createMessage(reply, conversation, null, "assistant")
     res.json({ conversationId: conversation._id, reply })
     return

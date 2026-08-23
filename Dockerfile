@@ -22,8 +22,8 @@ WORKDIR /app
 # tsx is not installed in the runtime stage; the shell-executor MCP server calls
 # out to git/curl, so those stay.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl git \
- && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends ca-certificates curl git \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
 
@@ -34,11 +34,6 @@ FROM base AS build
 RUN npm ci --ignore-scripts
 COPY . .
 
-# No typecheck here. Three chained `tsc --noEmit` runs were the heaviest step in
-# the image by a wide margin, and they emit nothing the image needs — they are a
-# correctness gate, not a build step. On a 2GB builder they exhausted memory and
-# the build hung until it timed out.
-#
 # Run `npm run typecheck` before committing, or in CI. Neither esbuild nor vite
 # typechecks, so nothing else will catch a type error.
 RUN npx vite build host
