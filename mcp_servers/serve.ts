@@ -1,7 +1,7 @@
 // Standalone runner: `npm run app-mcp`.
 //
-// Not `mcp-use dev` — that rewrites the root mcp-env.d.ts to point at this
-// entry, silently breaking types for the views/ fruit view.
+// Not `mcp-use dev` — that rewrites mcp-env.d.ts to point at this entry,
+// silently breaking types for the example server in examples/fruit-server.
 
 import server from "./index.js";
 

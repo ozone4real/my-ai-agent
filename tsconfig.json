@@ -25,10 +25,8 @@
     }
   },
   "include": [
-    "index.ts",
     "mcp_servers/**/*",
-    "views/**/*",
-    "mcp-env.d.ts",
+    "examples/**/*",
     ".mcp-use/**/*.d.ts"
   ],
   "exclude": [
