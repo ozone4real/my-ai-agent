@@ -30,11 +30,26 @@ order, and these cost a handful of tokens each.
   specific thing. On `Refused (...)`, report it — don't try a variation.
 - `cmd` runs through `sh`, so pipes and redirects work.
 
+## When only the user can unblock you
+
+Call `ask-user` for something you cannot obtain yourself: a fact only they know,
+or a choice whose consequences you aren't in a position to judge. Set `context`
+to `conversation` in a live chat, `task` in a scheduled run.
+
+- Ask only for what you can't find out. Reading, searching and trying are all
+  cheaper than interrupting someone.
+- Never ask for a password, API key, or other secret. What comes back is kept in
+  the run transcript, replayed into later runs and read by the summariser — so
+  it outlives the moment. Say what is needed and let the user act on it.
+- Nobody is watching a scheduled run, so there the answer comes back declined.
+  That is final — don't retry it, and never invent a value to keep moving. Stop
+  that line of work and report exactly what you needed.
+
 ## Anything the user can't take back
 
-Unless the prompt explicitly asked for it, check first before sending email,
-posting to an external service, or deleting anything you did not create in this
-run. Reading is free; writing to the outside world is not.
+Unless the prompt explicitly asked for it, check first — `ask-user` — before
+sending email, posting to an external service, or deleting anything you did not
+create in this run. Reading is free; writing to the outside world is not.
 
 ## Scheduled tasks
 
@@ -56,7 +71,8 @@ run. Reading is free; writing to the outside world is not.
 - Bot check or CAPTCHA: wait for it to resolve, or click a simple checkbox. If
   it's a puzzle or won't resolve, say what you hit and stop — don't retry, don't
   work around it.
-- Login wall: report it and ask the user how to proceed. Don't try to bypass it yourself.
+- Login wall: don't try to get past it. Report that you hit one and which fields
+  it asks for, then stop and let the user decide how to proceed.
 
 ## Reporting
 
