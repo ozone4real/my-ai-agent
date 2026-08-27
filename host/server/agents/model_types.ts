@@ -27,6 +27,10 @@ export enum ModelType {
   OPENROUTER_GEMINI_3_7_FLASH = "google/gemini-3.7-flash",
   OPENROUTER_GPT_5 = "openai/gpt-5",
   OPENROUTER_GROK_4_6 = "x-ai/grok-4.6",
+  // Paid, despite sitting close to the free tier in price: $0.075/M in,
+  // $0.25/M out, with a 1M context and tool calling. It has no `:free`
+  // variant — `z-ai/glm-5.2:free` is the only free model Z.ai publishes here.
+  OPENROUTER_GLM_5_3_FLASH = "z-ai/glm-5.3-flash",
   // Llama. No free variant exists on OpenRouter, but these are cheap enough to
   // be the sensible alternative to the free tier: ~$0.10/M in, with none of its
   // request caps or prompt retention. Scout carries a 1.3M context.
@@ -38,7 +42,6 @@ export enum ModelType {
   // cannot call them is useless here however cheap it is.
   //
   // Read the free-tier caveats on FREE_MODELS before making one a default.
-  OPEN_ROUTER_FREE_OX_ALPHA = "stealth/ox-alpha",
   OPENROUTER_FREE_NEMOTRON_3_SUPER = "nvidia/nemotron-3-super-120b-a12b:free",
   OPENROUTER_FREE_NEMOTRON_ULTRA = "nvidia/nemotron-3-ultra-550b-a55b:free",
   OPENROUTER_FREE_NEMOTRON_LIGHTNING = "nvidia/nemotron-3.5-lightning:free",
@@ -63,5 +66,4 @@ export const FREE_MODELS: ReadonlySet<ModelType> = new Set([
   ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING,
   ModelType.OPENROUTER_FREE_GEMMA_4_31B,
   ModelType.OPENROUTER_FREE_NEMOTRON_3_SUPER,
-  ModelType.OPEN_ROUTER_FREE_OX_ALPHA
 ])
