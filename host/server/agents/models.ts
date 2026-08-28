@@ -117,6 +117,7 @@ export const MODELS = {
   [ModelType.OPENROUTER_GROK_4_6]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_LLAMA_4_SCOUT]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_LLAMA_3_3_70B]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_FREE_ROUTER]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_FREE_GEMMA_4_31B]: ResilientChatOpenRouter,
@@ -146,6 +147,7 @@ export const MODEL_API_KEY_ENV: Record<ModelType, string> = {
   [ModelType.OPENROUTER_LLAMA_3_3_70B]: "OPENROUTER_API_KEY",
   // Free models still authenticate — the key identifies the account whose
   // free-tier allowance the request draws on.
+  [ModelType.OPENROUTER_FREE_ROUTER]: "OPENROUTER_API_KEY",
   [ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA]: "OPENROUTER_API_KEY",
   [ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING]: "OPENROUTER_API_KEY",
   [ModelType.OPENROUTER_FREE_GEMMA_4_31B]: "OPENROUTER_API_KEY",

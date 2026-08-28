@@ -97,9 +97,12 @@ const serializeMessage = (message: MessageDocument) => ({
   createdAt: message.createdAt,
 })
 
-// Newest thread first — the list is a "pick up where you left off" view.
+// Most recently active thread first — the list is a "pick up where you left
+// off" view, and the thread you last spoke in is the one you want at the top.
 router.get("/", async (_req: Request, res: Response) => {
-  const conversations = await ConversationModel.find().sort({ createdAt: -1 })
+  // Unsorted here: the order comes from lastMessageAt below, which lives in the
+  // messages collection and so can't be sorted on in this query.
+  const conversations = await ConversationModel.find()
 
   // One grouped query, so the list is two round trips regardless of size.
   const summaries = await MessageModel.aggregate<{
@@ -122,19 +125,26 @@ router.get("/", async (_req: Request, res: Response) => {
 
   const byConversation = new Map(summaries.map((s) => [String(s._id), s]))
 
-  res.json({
-    conversations: conversations.map((conversation) => {
-      const summary = byConversation.get(String(conversation._id))
-      return {
-        id: String(conversation._id),
-        createdAt: conversation.createdAt,
-        messageCount: summary?.messageCount ?? 0,
-        preview: summary?.preview ?? "",
-        // Falls back to createdAt so a thread with no messages still sorts sanely.
-        lastMessageAt: summary?.lastMessageAt ?? conversation.createdAt,
-      }
-    }),
+  const summarised = conversations.map((conversation) => {
+    const summary = byConversation.get(String(conversation._id))
+    return {
+      id: String(conversation._id),
+      createdAt: conversation.createdAt,
+      messageCount: summary?.messageCount ?? 0,
+      preview: summary?.preview ?? "",
+      // Falls back to createdAt so a thread with no messages still sorts sanely.
+      lastMessageAt: summary?.lastMessageAt ?? conversation.createdAt,
+    }
   })
+
+  // Sorted here rather than in Mongo: lastMessageAt is assembled from the
+  // aggregate above, so no single query holds both sides. The list is one
+  // user's threads, so the cost of sorting it in memory is nil.
+  summarised.sort(
+    (a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
+  )
+
+  res.json({ conversations: summarised })
 })
 
 router.get("/:conversation_id", async (req: Request, res: Response) => {

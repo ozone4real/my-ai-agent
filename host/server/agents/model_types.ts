@@ -42,6 +42,11 @@ export enum ModelType {
   // cannot call them is useless here however cheap it is.
   //
   // Read the free-tier caveats on FREE_MODELS before making one a default.
+  // A router, not a model: it picks a free model at random per request, so
+  // two runs of the same task can land on different ones. No `:free` suffix
+  // — the id *is* the free tier. 200k context, and it filters for tool
+  // calling, which the ~15 tools bound here need.
+  OPENROUTER_FREE_ROUTER = "openrouter/free",
   OPENROUTER_FREE_NEMOTRON_3_SUPER = "nvidia/nemotron-3-super-120b-a12b:free",
   OPENROUTER_FREE_NEMOTRON_ULTRA = "nvidia/nemotron-3-ultra-550b-a55b:free",
   OPENROUTER_FREE_NEMOTRON_LIGHTNING = "nvidia/nemotron-3.5-lightning:free",
@@ -66,4 +71,5 @@ export const FREE_MODELS: ReadonlySet<ModelType> = new Set([
   ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING,
   ModelType.OPENROUTER_FREE_GEMMA_4_31B,
   ModelType.OPENROUTER_FREE_NEMOTRON_3_SUPER,
+  ModelType.OPENROUTER_FREE_ROUTER,
 ])
