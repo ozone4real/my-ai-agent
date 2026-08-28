@@ -258,7 +258,9 @@ body {
 
 .app {
   flex: 1;
-  max-width: 780px;
+  /* Wide enough for the markdown the agent actually returns — tables, fenced
+     code and lists were wrapping raggedly inside a 780px column. */
+  max-width: 900px;
   margin: 0 auto;
   height: 100%;
   min-width: 0;
@@ -331,7 +333,8 @@ body {
 }
 
 .bubble {
-  max-width: 80%;
+  /* The agent's replies carry the markdown, so they get most of the column. */
+  max-width: 92%;
   padding: 10px 14px;
   border-radius: 14px;
   background: var(--panel);
@@ -342,6 +345,9 @@ body {
 .message.user .bubble {
   background: var(--user);
   border-color: transparent;
+  /* Kept narrower than the agent's: right-aligned and short, it is what makes
+     the two sides readable as a back-and-forth rather than one column. */
+  max-width: 80%;
 }
 
 .content {
@@ -1220,7 +1226,7 @@ body {
     display: none;
   }
 
-  .bubble {
+  .message.user .bubble {
     /* 80% wastes a phone's width and forces ragged wrapping. */
     max-width: 92%;
   }

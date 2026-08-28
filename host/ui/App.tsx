@@ -836,8 +836,7 @@ export function App() {
 
             {!loadingThread && messages.length === 0 && (
               <div className="empty">
-                Ask the agent something. It connects to your MCP servers via the
-                <code> /conversations </code> endpoint.
+                Ask me anything...
               </div>
             )}
 
