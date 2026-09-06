@@ -2,7 +2,7 @@
 
 A self-hosted platform for running AI agents: chat with one, schedule it to work
 unattended, and give it real tools through MCP — a headful browser, a shell, a
-sandboxed filesystem, local web search, and email.
+sandboxed filesystem, local web search, email, etc.
 
 The agent loop itself is [mcp-use](https://mcp-use.com)'s. What's here is
 everything around it — the tool surface, context management, scheduling,
@@ -51,6 +51,20 @@ Settings in the UI picks the model every new agent uses. The catalogue lives in
 DeepSeek directly, plus Gemini, GPT, Grok, Llama and a few no-cost models
 through OpenRouter. Each needs its provider's key in `.env`; adding another is
 three lines.
+
+### MCP Servers
+
+The agent connects to a set of default MCP servers, each for a specific purpose.
+The following MCP servers are included:
+
+- **Filesystem MCP server** for reading and writing files.
+- **Shell MCP server** for executing shell commands.
+- **Chrome MCP server** for controlling a browser.
+- **Search MCP server** for querying SearXNG.
+- **Brevo Email MCP server** for sending emails.
+- **The app MCP server** for interacting with the main application.
+
+The configuration for these servers lives in [`mcp_servers/servers_definition.ts`](mcp_servers/servers_definition.ts). You can remove and add new MCP servers to the configuration as needed.
 
 ## Running with Docker
 
