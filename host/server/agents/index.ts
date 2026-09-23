@@ -153,8 +153,14 @@ export class Agent {
     },
   })
 
-  /** Memoised so concurrent first requests connect once, not once each. */
-  private static sessions: Promise<unknown> | null = null
+  /**
+   * The connect in flight, if any. Shared so concurrent callers wait on one
+   * connect rather than each starting their own.
+   */
+  private static connecting: Promise<void> | null = null
+
+  /** Whether this agent has built its tools from the shared sessions yet. */
+  private initialized = false
 
   /**
    * An agent with Settings applied; explicit options win.
@@ -211,23 +217,40 @@ export class Agent {
   }
 
   /**
-   * Connect the MCP servers. Safe to call repeatedly — only the first call
-   * connects. Call it at boot so the first request doesn't wear the cost.
+   * Connect any MCP server that has no active session. Safe to call repeatedly:
+   * once every server is up it returns straight away. Call it at boot so the
+   * first request doesn't wear the cost.
+   *
+   * Checks the sessions every time rather than memoising the first connect,
+   * because sessions can go away. Leaving the reconnect to mcp-use is a race:
+   * an agent's `initialize()` only reconnects when it finds *no* sessions, so an
+   * agent that starts while another is halfway through reconnecting takes the
+   * partial set and runs without the rest. Brevo connects late, so its email
+   * tool was the one that went missing.
    */
-  static warmup(): Promise<unknown> {
-    // Clear on failure, or one bad connector at boot poisons every later call
-    // with the same rejected promise.
-    Agent.sessions ??= Agent.sharedClient
-      .createAllSessions()
-      .then(async (sessions) => {
-        await Agent.resolveDisallowedTools()
-        return sessions
-      })
-      .catch((err) => {
-        Agent.sessions = null
-        throw err
-      })
-    return Agent.sessions
+  static warmup(): Promise<void> {
+    if (!Agent.connecting && Agent.missingServers().length === 0) return Promise.resolve()
+
+    // Cleared either way, so a failed connect is retried by the next caller
+    // instead of every later call getting the same rejection.
+    Agent.connecting ??= Agent.connectMissing().finally(() => {
+      Agent.connecting = null
+    })
+    return Agent.connecting
+  }
+
+  /** Configured servers without an active session. */
+  private static missingServers(): string[] {
+    const active = Agent.sharedClient.activeSessions
+    return Agent.sharedClient.getServerNames().filter((name) => !active.includes(name))
+  }
+
+  /** In config order, one at a time, as `createAllSessions()` does. */
+  private static async connectMissing(): Promise<void> {
+    for (const server of Agent.missingServers()) {
+      await Agent.sharedClient.createSession(server)
+    }
+    await Agent.resolveDisallowedTools()
   }
 
   /**
@@ -276,35 +299,49 @@ export class Agent {
   /**
    * Withhold the unused tools from this agent.
    *
-   * After warmup, before the first run: mcp-use builds its tool list during
-   * `initialize()`, which run/stream trigger, and re-reads this each time.
+   * After warmup, before `initialize()`: that is when mcp-use builds the tool
+   * list, and the list is filtered as it is built.
    */
   private applyToolFilter(): void {
     if (Agent.disallowedTools.length) this.agent.setDisallowedTools(Agent.disallowedTools)
   }
 
+  /**
+   * Connect, filter, and build this agent's tools. Every run goes through here.
+   *
+   * The runs below pass `manageConnector: false`, which is why this initialises
+   * the agent itself. With `true`, mcp-use calls `close()` when a run throws,
+   * and on a shared client that closes every session. That ends the other
+   * agents' in-flight runs, and later runs can start with some servers missing.
+   * The shared client is closed only at shutdown.
+   */
+  private async prepare(): Promise<void> {
+    await Agent.warmup()
+    this.applyToolFilter()
+    if (this.initialized) return
+    await this.agent.initialize()
+    this.initialized = true
+  }
+
   /** Disconnect every MCP server. Process shutdown only — this is shared state. */
   static async shutdown(): Promise<void> {
-    if (!Agent.sessions) return
-    Agent.sessions = null
     await Agent.sharedClient.close()
   }
 
   async run(prompt: string, context: AgentMessage[] = []) {
-    await Agent.warmup()
-    this.applyToolFilter()
+    await this.prepare()
     const result = await this.agent.run({
       prompt,
+      manageConnector: false,
       externalHistory: toLangChainHistory(context)
     })
     return result;
   }
   async *stream(prompt: string, context: AgentMessage[] = []): AsyncGenerator<AgentStreamPayload> {
-    await Agent.warmup()
-    this.applyToolFilter()
+    await this.prepare()
     const stream = this.agent.stream({
       prompt,
-      manageConnector: true,
+      manageConnector: false,
       externalHistory: toLangChainHistory(context),
     })
 
@@ -361,12 +398,11 @@ export class Agent {
       }
     }
 
-    await Agent.warmup()
-    this.applyToolFilter()
+    await this.prepare()
 
     for await (const event of this.agent.streamEvents({
       prompt,
-      manageConnector: true,
+      manageConnector: false,
       externalHistory: toLangChainHistory(context),
     })) {
       switch (event.event) {
