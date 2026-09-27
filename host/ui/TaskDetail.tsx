@@ -4,6 +4,7 @@ import { Transcript } from "./Transcript";
 import type { TaskRun, TaskUpdate, TaskWithRuns } from "./api";
 import { useArmedAction } from "./useArmedAction";
 import { deleteTaskRun, getSettings, runTaskNow } from "./api";
+import { InfiniteScroll } from "./pagination";
 
 /** Full timestamp — a run's history is exactly where the date matters. */
 function formatStamp(iso: string): string {
@@ -73,6 +74,9 @@ export function TaskDetail({
   saving,
   saveError,
   onRefresh,
+  onRunDeleted,
+  onLoadMoreRuns,
+  loadingMoreRuns,
 }: {
   task: TaskWithRuns;
   onDelete: () => void;
@@ -80,8 +84,13 @@ export function TaskDetail({
   onSave: (update: TaskUpdate) => void;
   saving: boolean;
   saveError: string | null;
-  /** Refetches the task, so a queued or deleted run is reflected in the list. */
+  /** Refetches the task, so a queued run is reflected in the list. */
   onRefresh?: () => void;
+  /** A run was deleted on the server; drop it from the list and the counts. */
+  onRunDeleted?: (runId: string) => void;
+  /** Fetches the next page of runs; offered while `task.nextRunsCursor` is set. */
+  onLoadMoreRuns?: () => void;
+  loadingMoreRuns?: boolean;
 }) {
   // Keyed on the task id so an armed button can't carry to another record.
   const { armed: confirming, trigger: arm } = useArmedAction(onDelete, task.id);
@@ -134,22 +143,22 @@ export function TaskDetail({
     setEditing(false);
   };
 
-  const succeeded = task.runs.filter((r) => r.status === "success").length;
-  const failed = task.runs.filter((r) => r.status === "failed").length;
-  const runInProgress = task.runs.some((r) => r.status === "in_progress");
+  // From the server, not `task.runs`: that only holds the pages loaded so far.
+  const { total: runTotal, success: succeeded, failed } = task.runCounts;
+  const runInProgress = task.runCounts.in_progress > 0;
 
   const [running, setRunning] = useState(false);
   const [runNotice, setRunNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const [deletingRun, setDeletingRun] = useState<string | null>(null);
 
-  // Refetch rather than splice the row out: the run list is the server's, and
-  // a failed delete would otherwise leave the UI disagreeing with it.
+  // Dropped from the list only once the server confirms, so a failed delete
+  // can't leave the UI disagreeing with it.
   const removeRun = async (runId: string) => {
     setDeletingRun(runId);
     setRunNotice(null);
     try {
       await deleteTaskRun(task.id, runId);
-      onRefresh?.();
+      onRunDeleted?.(runId);
     } catch (err) {
       setRunNotice({ ok: false, text: (err as Error)?.message ?? "Could not delete the run" });
     } finally {
@@ -310,7 +319,7 @@ export function TaskDetail({
 
       {confirming && !deleting && (
         <p className="task-warning">
-          This deletes the task and all {task.runs.length} of its runs.
+          This deletes the task and all {runTotal} of its runs.
         </p>
       )}
 
@@ -343,8 +352,8 @@ export function TaskDetail({
 
       <div className="runs">
         <h3>
-          Runs <span className="muted">({task.runs.length})</span>
-          {task.runs.length > 0 && (
+          Runs <span className="muted">({runTotal})</span>
+          {runTotal > 0 && (
             <span className="muted">
               {" "}
               — {succeeded} succeeded, {failed} failed
@@ -352,7 +361,7 @@ export function TaskDetail({
           )}
         </h3>
 
-        {task.runs.length === 0 ? (
+        {runTotal === 0 ? (
           <div className="empty small">
             This task hasn't run yet. Runs appear here once the job executes it.
           </div>
@@ -367,6 +376,14 @@ export function TaskDetail({
               />
             ))}
           </ul>
+        )}
+
+        {task.nextRunsCursor && onLoadMoreRuns && (
+          <InfiniteScroll
+            loading={Boolean(loadingMoreRuns)}
+            itemCount={task.runs.length}
+            onLoad={onLoadMoreRuns}
+          />
         )}
       </div>
     </div>

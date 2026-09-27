@@ -7,6 +7,7 @@ import {
   getConversation,
   getTask,
   listConversations,
+  listTaskRuns,
   listTasks,
   answerElicitation,
   sendChat,
@@ -14,6 +15,7 @@ import {
   type ElicitationAnswer,
   type ElicitationRequest,
   type ConversationSummary,
+  type Page,
   type Task,
   type TaskUpdate,
   type TaskWithRuns,
@@ -25,6 +27,7 @@ import { NewTask } from "./NewTask";
 import { Elicitation } from "./Elicitation";
 import { getSettings } from "./api";
 import { useArmedAction } from "./useArmedAction";
+import { appendPage, emptyPage, InfiniteScroll, mergeFirstPage } from "./pagination";
 
 interface Message {
   id: string;
@@ -234,8 +237,14 @@ export function App() {
   );
   /** Mobile drawer. Ignored above 720px, where the sidebar is always visible. */
   const [navOpen, setNavOpen] = useState(false);
-  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [conversations, setConversations] = useState<Page<ConversationSummary>>(emptyPage);
+  const [tasks, setTasks] = useState<Page<Task>>(emptyPage);
+  /** Which lists have a next page in flight, so their button can't fire twice. */
+  const [loadingMore, setLoadingMore] = useState({
+    conversations: false,
+    tasks: false,
+    runs: false,
+  });
   const [activeTask, setActiveTask] = useState<TaskWithRuns | null>(null);
   const [loadingTask, setLoadingTask] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -299,13 +308,33 @@ export function App() {
 
   const refreshConversations = useCallback(async () => {
     try {
-      setConversations(await listConversations());
+      const fresh = await listConversations();
+      // Merged rather than replaced: this runs after every turn, and replacing
+      // would drop any older pages the reader had loaded.
+      setConversations((current) => mergeFirstPage(current, fresh));
       setListError(null);
     } catch (err) {
       setListError((err as Error)?.message ?? "Could not load conversations");
     }
   }, []);
 
+  const loadMoreConversations = useCallback(async () => {
+    const cursor = conversations.nextCursor;
+    if (!cursor) return;
+    setLoadingMore((s) => ({ ...s, conversations: true }));
+    try {
+      const next = await listConversations(cursor);
+      setConversations((current) => appendPage(current, next));
+      setListError(null);
+    } catch (err) {
+      setListError((err as Error)?.message ?? "Could not load more conversations");
+    } finally {
+      setLoadingMore((s) => ({ ...s, conversations: false }));
+    }
+  }, [conversations.nextCursor]);
+
+  // Replaced, not merged: this is the Refresh button, so a task deleted
+  // elsewhere — by the agent, say — should drop out.
   const refreshTasks = useCallback(async () => {
     try {
       setTasks(await listTasks());
@@ -314,6 +343,21 @@ export function App() {
       setListError((err as Error)?.message ?? "Could not load tasks");
     }
   }, []);
+
+  const loadMoreTasks = useCallback(async () => {
+    const cursor = tasks.nextCursor;
+    if (!cursor) return;
+    setLoadingMore((s) => ({ ...s, tasks: true }));
+    try {
+      const next = await listTasks(cursor);
+      setTasks((current) => appendPage(current, next));
+      setListError(null);
+    } catch (err) {
+      setListError((err as Error)?.message ?? "Could not load more tasks");
+    } finally {
+      setLoadingMore((s) => ({ ...s, tasks: false }));
+    }
+  }, [tasks.nextCursor]);
 
   useEffect(() => {
     void refreshConversations();
@@ -360,6 +404,70 @@ export function App() {
     };
   }, [pane, taskId]);
 
+  /**
+   * Refetch the open task, e.g. once a run is queued. Its first page of runs is
+   * merged in, so older runs the reader loaded stay put.
+   */
+  const refreshActiveTask = useCallback(async () => {
+    const id = taskIdRef.current;
+    if (!id) return;
+    try {
+      const fresh = await getTask(id);
+      setActiveTask((current) => {
+        if (!current || current.id !== fresh.id) return current;
+        const runs = mergeFirstPage(
+          { items: current.runs, nextCursor: current.nextRunsCursor },
+          { items: fresh.runs, nextCursor: fresh.nextRunsCursor }
+        );
+        return { ...fresh, runs: runs.items, nextRunsCursor: runs.nextCursor };
+      });
+      setListError(null);
+    } catch (err) {
+      setListError((err as Error)?.message ?? "Could not refresh task");
+    }
+  }, []);
+
+  const loadMoreRuns = useCallback(async () => {
+    const task = activeTask;
+    if (!task?.nextRunsCursor) return;
+    setLoadingMore((s) => ({ ...s, runs: true }));
+    try {
+      const next = await listTaskRuns(task.id, task.nextRunsCursor);
+      setActiveTask((current) => {
+        // The reader may have moved to another task while this was in flight.
+        if (!current || current.id !== task.id) return current;
+        const runs = appendPage({ items: current.runs, nextCursor: current.nextRunsCursor }, next);
+        return { ...current, runs: runs.items, nextRunsCursor: runs.nextCursor };
+      });
+      setListError(null);
+    } catch (err) {
+      setListError((err as Error)?.message ?? "Could not load more runs");
+    } finally {
+      setLoadingMore((s) => ({ ...s, runs: false }));
+    }
+  }, [activeTask]);
+
+  /**
+   * Drop a deleted run from the open task. Spliced out rather than refetched:
+   * a refetch only brings back the first page, which can't show that a run
+   * further down has gone.
+   */
+  const dropRun = useCallback((runId: string) => {
+    setActiveTask((current) => {
+      const run = current?.runs.find((r) => r.id === runId);
+      if (!current || !run) return current;
+      return {
+        ...current,
+        runs: current.runs.filter((r) => r.id !== runId),
+        runCounts: {
+          ...current.runCounts,
+          total: current.runCounts.total - 1,
+          [run.status]: current.runCounts[run.status] - 1,
+        },
+      };
+    });
+  }, []);
+
   const openTask = useCallback(
     (id: string) => navigate(`/tasks/${id}`),
     [navigate]
@@ -369,7 +477,10 @@ export function App() {
     setDeletingId(taskId);
     try {
       await deleteTask(taskId);
-      setTasks((current) => current.filter((t) => t.id !== taskId));
+      setTasks((current) => ({
+        ...current,
+        items: current.items.filter((t) => t.id !== taskId),
+      }));
       // The detail URL now points at nothing.
       if (taskId === taskIdRef.current) navigate("/tasks");
       setListError(null);
@@ -390,7 +501,10 @@ export function App() {
         current && current.id === taskId ? { ...current, ...saved } : current
       );
       // And the sidebar row, so its schedule doesn't go stale.
-      setTasks((current) => current.map((t) => (t.id === taskId ? { ...t, ...saved } : t)));
+      setTasks((current) => ({
+        ...current,
+        items: current.items.map((t) => (t.id === taskId ? { ...t, ...saved } : t)),
+      }));
     } catch (err) {
       // Shown in the form: a rejected cron is the common case and belongs
       // next to the field, not in the sidebar.
@@ -406,7 +520,10 @@ export function App() {
       setDeletingId(conversationId);
       try {
         await deleteConversation(conversationId);
-        setConversations((current) => current.filter((c) => c.id !== conversationId));
+        setConversations((current) => ({
+          ...current,
+          items: current.items.filter((c) => c.id !== conversationId),
+        }));
 
         if (conversationId === activeIdRef.current) navigate("/");
         setListError(null);
@@ -734,11 +851,11 @@ export function App() {
           </div>
         ) : pane === "chats" ? (
           <div className="conversation-list">
-            {conversations.length === 0 && !listError && (
+            {conversations.items.length === 0 && !listError && (
               <div className="sidebar-empty">No conversations yet.</div>
             )}
 
-            {conversations.map((conversation) => (
+            {conversations.items.map((conversation) => (
               <ConversationRow
                 key={conversation.id}
                 conversation={conversation}
@@ -749,10 +866,18 @@ export function App() {
                 onDelete={() => void removeConversation(conversation.id)}
               />
             ))}
+
+            {conversations.nextCursor && (
+              <InfiniteScroll
+                loading={loadingMore.conversations}
+                itemCount={conversations.items.length}
+                onLoad={() => void loadMoreConversations()}
+              />
+            )}
           </div>
         ) : (
           <div className="conversation-list">
-            {tasks.length === 0 && !listError && (
+            {tasks.items.length === 0 && !listError && (
               <div className="sidebar-empty">
                 No scheduled tasks yet. Create one with <strong>New</strong>, or
                 ask the agent to — it schedules them with its
@@ -760,7 +885,7 @@ export function App() {
               </div>
             )}
 
-            {tasks.map((task) => (
+            {tasks.items.map((task) => (
               <button
                 key={task.id}
                 className={`conversation ${task.id === activeTask?.id ? "active" : ""}`}
@@ -774,6 +899,14 @@ export function App() {
                 </span>
               </button>
             ))}
+
+            {tasks.nextCursor && (
+              <InfiniteScroll
+                loading={loadingMore.tasks}
+                itemCount={tasks.items.length}
+                onLoad={() => void loadMoreTasks()}
+              />
+            )}
           </div>
         )}
       </aside>
@@ -805,7 +938,12 @@ export function App() {
             {newTask && (
               <NewTask
                 onCreated={(task) => {
-                  void refreshTasks();
+                  // Newest first, so it goes on top — no refetch, which would
+                  // collapse the list back to its first page.
+                  setTasks((current) => ({
+                    ...current,
+                    items: [task, ...current.items.filter((t) => t.id !== task.id)],
+                  }));
                   navigate(`/tasks/${task.id}`);
                 }}
                 onCancel={() => navigate("/tasks")}
@@ -825,7 +963,10 @@ export function App() {
                 onSave={(update) => void saveTask(activeTask.id, update)}
                 saving={savingTask}
                 saveError={taskSaveError}
-                onRefresh={() => void openTask(activeTask.id)}
+                onRefresh={() => void refreshActiveTask()}
+                onRunDeleted={dropRun}
+                onLoadMoreRuns={() => void loadMoreRuns()}
+                loadingMoreRuns={loadingMore.runs}
               />
             )}
           </div>

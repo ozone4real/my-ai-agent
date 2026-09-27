@@ -13,6 +13,7 @@ import { Agent } from "./agents";
 import { connectDB } from "./db";
 import { basicAuth } from "./middleware/basic_auth.js";
 import { reconcileTaskSchedulers } from "./jobs/reconcile_schedulers.js";
+import { backfillLastMessageAt } from "./jobs/backfill_last_message_at.js";
 import router from "./routes"
 import { closeBullBoardQueues } from "./routes/admin/bull_board.js"
 
@@ -49,6 +50,16 @@ app.use("/api", router)
 connectDB()
   .then(async () => {
     console.log("MongoDB connected");
+    try {
+      const stamped = await backfillLastMessageAt();
+      if (stamped) console.log(`Backfilled lastMessageAt on ${stamped} conversations`);
+    } catch (err) {
+      console.warn(
+        `Could not backfill lastMessageAt; older conversations may be missing from the list: ${
+          err instanceof Error ? err.message : String(err)
+        }`
+      );
+    }
     // Repair scheduler drift from an outage or bulk delete. Best-effort.
     try {
       const { added, updated, removed } = await reconcileTaskSchedulers();

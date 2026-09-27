@@ -1,6 +1,6 @@
 // Thin client for the /conversations API.
 //
-//   GET  /conversations                       list threads
+//   GET  /conversations?cursor=               list threads, a page at a time
 //   GET  /conversations/:id                   one thread with its messages
 //   POST /conversations                       start a thread (streams the reply)
 //   POST /conversations/:id/messages          continue a thread (streams the reply)
@@ -30,6 +30,20 @@ const API = "/api";
 const ENDPOINT = `${API}/conversations`;
 const TASKS_ENDPOINT = `${API}/tasks`;
 const SETTINGS_ENDPOINT = `${API}/settings`;
+
+/**
+ * One page of a list, at most 20 rows. Pass `nextCursor` back to get the rows
+ * after these; null means this is the last page.
+ */
+export interface Page<T> {
+  items: T[];
+  nextCursor: string | null;
+}
+
+/** `url?cursor=…`, or `url` alone for the first page. */
+function withCursor(url: string, cursor?: string | null): string {
+  return cursor ? `${url}?cursor=${encodeURIComponent(cursor)}` : url;
+}
 
 /** App-wide settings. There is one of these, not one per user. */
 export interface Settings {
@@ -102,21 +116,55 @@ export interface TaskRun {
   endedAt: string;
 }
 
-/** A task plus its run history, newest run first. */
-export type TaskWithRuns = Task & { runs: TaskRun[] };
+/** How many runs a task has in each status, over its whole history. */
+export interface RunCounts {
+  total: number;
+  in_progress: number;
+  failed: number;
+  success: number;
+}
 
-/** Newest task first. Runs are not included — use `getTask` for those. */
-export async function listTasks(signal?: AbortSignal): Promise<Task[]> {
-  const res = await fetch(TASKS_ENDPOINT, {
+/** A task plus the first page of its run history, newest run first. */
+export type TaskWithRuns = Task & {
+  runs: TaskRun[];
+  /** Continues `runs` through `listTaskRuns`; null when they're all here. */
+  nextRunsCursor: string | null;
+  runCounts: RunCounts;
+};
+
+/**
+ * One page of tasks, newest first. Omit `cursor` for the first page. Runs are
+ * not included — use `getTask` for those.
+ */
+export async function listTasks(
+  cursor?: string | null,
+  signal?: AbortSignal
+): Promise<Page<Task>> {
+  const res = await fetch(withCursor(TASKS_ENDPOINT, cursor), {
     headers: { accept: "application/json" },
     signal,
   });
   if (!res.ok) throw new Error(await readError(res));
-  const data = (await res.json()) as { tasks?: Task[] };
-  return data.tasks ?? [];
+  const data = (await res.json()) as { tasks?: Task[]; nextCursor?: string | null };
+  return { items: data.tasks ?? [], nextCursor: data.nextCursor ?? null };
 }
 
-/** One task with its full run history. */
+/** The page of a task's runs after `cursor`, newest first. */
+export async function listTaskRuns(
+  taskId: string,
+  cursor: string,
+  signal?: AbortSignal
+): Promise<Page<TaskRun>> {
+  const res = await fetch(
+    withCursor(`${TASKS_ENDPOINT}/${encodeURIComponent(taskId)}/runs`, cursor),
+    { headers: { accept: "application/json" }, signal }
+  );
+  if (!res.ok) throw new Error(await readError(res));
+  const data = (await res.json()) as { runs?: TaskRun[]; nextCursor?: string | null };
+  return { items: data.runs ?? [], nextCursor: data.nextCursor ?? null };
+}
+
+/** One task with the first page of its run history. */
 export async function getTask(
   taskId: string,
   signal?: AbortSignal
@@ -314,17 +362,21 @@ export interface ConversationDetail {
   model?: string | null;
 }
 
-/** Newest thread first. */
+/** One page of threads, most recently active first. Omit `cursor` for the first. */
 export async function listConversations(
+  cursor?: string | null,
   signal?: AbortSignal
-): Promise<ConversationSummary[]> {
-  const res = await fetch(ENDPOINT, {
+): Promise<Page<ConversationSummary>> {
+  const res = await fetch(withCursor(ENDPOINT, cursor), {
     headers: { accept: "application/json" },
     signal,
   });
   if (!res.ok) throw new Error(await readError(res));
-  const data = (await res.json()) as { conversations?: ConversationSummary[] };
-  return data.conversations ?? [];
+  const data = (await res.json()) as {
+    conversations?: ConversationSummary[];
+    nextCursor?: string | null;
+  };
+  return { items: data.conversations ?? [], nextCursor: data.nextCursor ?? null };
 }
 
 /** One thread with its full message history. */

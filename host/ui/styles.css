@@ -1329,3 +1329,12 @@ body {
   color: var(--text);
 }
 
+
+/* ---- Pagination ---- */
+.scroll-sentinel {
+  min-height: 1px;
+  padding: 6px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}

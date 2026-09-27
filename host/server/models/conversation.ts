@@ -28,6 +28,19 @@ const conversationSchema = new mongoose.Schema(
       required: false,
       enum: MODEL_CHOICES,
     },
+    /**
+     * When the thread last had a message; what the list sorts and pages on.
+     *
+     * A copy of the newest message's createdAt, kept here because a keyset
+     * query can only page on a field of the collection it reads. Message's
+     * post-save hook moves it forward. Starts at creation, so a thread with no
+     * messages still sorts sanely.
+     */
+    lastMessageAt: {
+      type: Date,
+      required: true,
+      default: Date.now,
+    },
   },
   {
     timestamps: true,
@@ -49,6 +62,9 @@ conversationSchema.virtual("messages", {
   // between messages written in the same millisecond.
   options: { sort: { createdAt: 1, _id: 1 } },
 });
+
+// The list: most recently active first, paged by keyset.
+conversationSchema.index({ lastMessageAt: -1, _id: -1 });
 
 export type Conversation = InferSchemaType<typeof conversationSchema>;
 export type ConversationDocument = HydratedDocument<Conversation>;

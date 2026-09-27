@@ -71,6 +71,9 @@ const TaskSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// The list: newest first, paged by keyset.
+TaskSchema.index({ createdAt: -1, _id: -1 });
+
 export type Creator = (typeof CREATORS)[number];
 export type Task = InferSchemaType<typeof TaskSchema>;
 export type TaskDocument = HydratedDocument<Task>;

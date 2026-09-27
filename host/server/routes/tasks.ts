@@ -2,7 +2,8 @@ import { Router } from "express"
 import type { Request, Response } from "express"
 import { Types } from "mongoose"
 import { TaskModel } from "../models/task"
-import { TaskRunModel } from "../models/task_run"
+import { TaskRunModel, type Status } from "../models/task_run"
+import { afterCursor, newestFirst, PAGE_SIZE, toPage } from "./pagination"
 import {
   applyTaskUpdate,
   serializeTask,
@@ -28,10 +29,39 @@ const findTask = async (rawId: unknown, res: Response) => {
   return task
 }
 
-// Newest first. Runs omitted so the response can't grow without bound.
-router.get("/", async (_req: Request, res: Response) => {
-  const tasks = await TaskModel.find().sort({ createdAt: -1 })
-  res.json({ tasks: tasks.map(serializeTask) })
+/** One page of a task's runs, newest first. `after` comes from afterCursor. */
+const findRuns = async (taskId: Types.ObjectId, after: Record<string, unknown>) => {
+  const rows = await TaskRunModel
+    .find({ task: taskId, ...after })
+    .sort(newestFirst("startedAt"))
+    .limit(PAGE_SIZE + 1)
+  const { items, nextCursor } = toPage(rows, (run) => run.startedAt)
+  return { runs: items.map(serializeTaskRun), nextCursor }
+}
+
+/** Runs per status, over all of a task's runs rather than the loaded page. */
+const countRuns = async (taskId: Types.ObjectId) => {
+  const groups = await TaskRunModel.aggregate<{ _id: Status; count: number }>([
+    { $match: { task: taskId } },
+    { $group: { _id: "$status", count: { $sum: 1 } } },
+  ])
+  const counts = { total: 0, in_progress: 0, failed: 0, success: 0 }
+  for (const { _id, count } of groups) {
+    counts[_id] = count
+    counts.total += count
+  }
+  return counts
+}
+
+// Newest first, paged by keyset: pass `nextCursor` back as `?cursor=`. Runs
+// omitted — they are paged separately under each task.
+router.get("/", async (req: Request, res: Response) => {
+  const after = afterCursor(req, res, "createdAt")
+  if (!after) return
+
+  const rows = await TaskModel.find(after).sort(newestFirst("createdAt")).limit(PAGE_SIZE + 1)
+  const { items, nextCursor } = toPage(rows, (task) => task.createdAt)
+  res.json({ tasks: items.map(serializeTask), nextCursor })
 })
 
 /**
@@ -70,12 +100,30 @@ router.post("/", async (req: Request, res: Response) => {
   }
 })
 
+/**
+ * The task with its first page of runs. `nextRunsCursor` continues the history
+ * through `GET /:task_id/runs`; `runCounts` covers every run, loaded or not.
+ */
 router.get("/:task_id", async (req: Request, res: Response) => {
   const task = await findTask(req.params.task_id, res)
   if (!task) return
 
-  const runs = await TaskRunModel.find({ task: task._id }).sort({ startedAt: -1 })
-  res.json({ ...serializeTask(task), runs: runs.map(serializeTaskRun) })
+  const [{ runs, nextCursor }, runCounts] = await Promise.all([
+    findRuns(task._id, {}),
+    countRuns(task._id),
+  ])
+  res.json({ ...serializeTask(task), runs, nextRunsCursor: nextCursor, runCounts })
+})
+
+// Newest first, paged by keyset: pass `nextCursor` back as `?cursor=`.
+router.get("/:task_id/runs", async (req: Request, res: Response) => {
+  const task = await findTask(req.params.task_id, res)
+  if (!task) return
+
+  const after = afterCursor(req, res, "startedAt")
+  if (!after) return
+
+  res.json(await findRuns(task._id, after))
 })
 
 /**

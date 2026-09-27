@@ -15,6 +15,7 @@ import {
   type ElicitationRequest,
 } from "../services/elicitation"
 import { ClientSession, Document, Types } from "mongoose"
+import { afterCursor, newestFirst, PAGE_SIZE, toPage } from "./pagination"
 
 const router = Router()
 
@@ -99,18 +100,24 @@ const serializeMessage = (message: MessageDocument) => ({
 
 // Most recently active thread first — the list is a "pick up where you left
 // off" view, and the thread you last spoke in is the one you want at the top.
-router.get("/", async (_req: Request, res: Response) => {
-  // Unsorted here: the order comes from lastMessageAt below, which lives in the
-  // messages collection and so can't be sorted on in this query.
-  const conversations = await ConversationModel.find()
+// Paged by keyset: pass the previous response's `nextCursor` as `?cursor=`.
+router.get("/", async (req: Request, res: Response) => {
+  const after = afterCursor(req, res, "lastMessageAt")
+  if (!after) return
 
-  // One grouped query, so the list is two round trips regardless of size.
+  const rows = await ConversationModel
+    .find(after)
+    .sort(newestFirst("lastMessageAt"))
+    .limit(PAGE_SIZE + 1)
+  const { items: conversations, nextCursor } = toPage(rows, (c) => c.lastMessageAt)
+
+  // One grouped query over this page's threads, so a page is two round trips.
   const summaries = await MessageModel.aggregate<{
     _id: Types.ObjectId
     messageCount: number
     preview: string
-    lastMessageAt: Date
   }>([
+    { $match: { conversation: { $in: conversations.map((c) => c._id) } } },
     { $sort: { conversation: 1, createdAt: 1, _id: 1 } },
     {
       $group: {
@@ -118,33 +125,25 @@ router.get("/", async (_req: Request, res: Response) => {
         messageCount: { $sum: 1 },
         // The opening message doubles as the thread's title.
         preview: { $first: "$content" },
-        lastMessageAt: { $last: "$createdAt" },
       },
     },
   ])
 
   const byConversation = new Map(summaries.map((s) => [String(s._id), s]))
 
-  const summarised = conversations.map((conversation) => {
-    const summary = byConversation.get(String(conversation._id))
-    return {
-      id: String(conversation._id),
-      createdAt: conversation.createdAt,
-      messageCount: summary?.messageCount ?? 0,
-      preview: summary?.preview ?? "",
-      // Falls back to createdAt so a thread with no messages still sorts sanely.
-      lastMessageAt: summary?.lastMessageAt ?? conversation.createdAt,
-    }
+  res.json({
+    conversations: conversations.map((conversation) => {
+      const summary = byConversation.get(String(conversation._id))
+      return {
+        id: String(conversation._id),
+        createdAt: conversation.createdAt,
+        messageCount: summary?.messageCount ?? 0,
+        preview: summary?.preview ?? "",
+        lastMessageAt: conversation.lastMessageAt,
+      }
+    }),
+    nextCursor,
   })
-
-  // Sorted here rather than in Mongo: lastMessageAt is assembled from the
-  // aggregate above, so no single query holds both sides. The list is one
-  // user's threads, so the cost of sorting it in memory is nil.
-  summarised.sort(
-    (a, b) => new Date(b.lastMessageAt).getTime() - new Date(a.lastMessageAt).getTime()
-  )
-
-  res.json({ conversations: summarised })
 })
 
 router.get("/:conversation_id", async (req: Request, res: Response) => {

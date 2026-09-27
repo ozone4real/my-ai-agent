@@ -6,6 +6,7 @@ import type {
   InferSchemaType,
   HydratedDocument,
 } from "mongoose";
+import { ConversationModel } from "./conversation.js";
 
 export const AUTHORS = ["user", "assistant"] as const;
 
@@ -33,6 +34,15 @@ const messageSchema = new mongoose.Schema(
 
 // Loading a thread means "this conversation's messages, oldest first".
 messageSchema.index({ conversation: 1, createdAt: 1 });
+
+// Keep the thread's activity stamp current, so the conversation list can sort
+// and page on it. $max so a slow save can't move it backwards.
+messageSchema.post("save", async function (message) {
+  await ConversationModel.updateOne(
+    { _id: message.conversation },
+    { $max: { lastMessageAt: message.createdAt } }
+  );
+});
 
 export type Author = (typeof AUTHORS)[number];
 export type Message = InferSchemaType<typeof messageSchema>;
