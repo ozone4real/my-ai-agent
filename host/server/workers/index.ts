@@ -7,6 +7,7 @@ import { connectDB, disconnectDB } from "../db.js";
 import { Agent } from "../agents/index.js";
 import ApplicationJob from "../jobs/application_job.js";
 import CompactTranscriptsJob from "../jobs/compact_transcripts_job.js";
+import CloseStalePagesJob from "../jobs/close_stale_pages_job.js";
 import AgenticWorker from "./agentic_worker.js";
 import DefaultWorker from "./default_worker.js";
 
@@ -38,6 +39,16 @@ await CompactTranscriptsJob.schedule()
   .catch((err: unknown) =>
     console.warn(
       `Could not schedule transcript compaction: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    )
+  );
+
+await CloseStalePagesJob.schedule()
+  .then(() => console.log("Stale browser page cleanup scheduled every 10 minutes"))
+  .catch((err: unknown) =>
+    console.warn(
+      `Could not schedule stale browser page cleanup: ${
         err instanceof Error ? err.message : String(err)
       }`
     )

@@ -2,12 +2,13 @@ import { Job, Worker } from "bullmq"
 import ApplicationJob, { JobQueueName } from "../jobs/application_job.js"
 import AgenticJob from "../jobs/agentic_job.js"
 import CompactTranscriptsJob from "../jobs/compact_transcripts_job.js"
+import CloseStalePagesJob from "../jobs/close_stale_pages_job.js"
 import { redisConnection } from "../redis.js"
 
 // Keyed off each class's own `jobName`, so the registry can't drift from what
 // the scheduler writes.
 const JOBS: Record<string, typeof ApplicationJob> = Object.fromEntries(
-  [AgenticJob, CompactTranscriptsJob].map((job) => [job.jobName, job])
+  [AgenticJob, CompactTranscriptsJob, CloseStalePagesJob].map((job) => [job.jobName, job])
 )
 
 
