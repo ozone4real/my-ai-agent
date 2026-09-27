@@ -51,6 +51,26 @@ const CHROME_URL = process.env.CHROME_URL ?? "http://127.0.0.1:9222";
  */
 export const SERVER_TOOL_ALLOWLIST: Record<string, string[]> = {
   brevo: ["transac_templates_send_transac_email"],
+  // Browsing and form filling only — drops the heap, performance, lighthouse,
+  // extension and emulation tools.
+  chromedevtools: [
+    "new_page",
+    "list_pages",
+    "close_page",
+    "navigate_page",
+    "handle_dialog",
+    "take_snapshot",
+    "wait_for",
+    "take_screenshot",
+    "click",
+    "hover",
+    "fill",
+    "fill_form",
+    "type_text",
+    "press_key",
+    "upload_file",
+    "evaluate_script",
+  ],
 };
 
 export default {
