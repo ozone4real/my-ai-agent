@@ -65,6 +65,7 @@ export default class AgenticJob extends ApplicationJob {
       // undefined falls through to the app default inside withSettings.
       model: task.agentModel as ModelType | undefined,
       streaming: false,
+      usageLabel: `task ${task._id}`,
     })
     // Default failed: anything that escapes the try isn't a success.
     let status: Status = "failed"
@@ -94,6 +95,11 @@ export default class AgenticJob extends ApplicationJob {
       await taskRun.updateOne({
         status,
         transcript: JSON.stringify(this.transcriptFor(agent, failure, steps)),
+        usage: {
+          ...agent.usage.totals,
+          replayedChars: String(context[0]?.content ?? "").length,
+          promptChars: task.prompt.length,
+        },
       })
     }
   }

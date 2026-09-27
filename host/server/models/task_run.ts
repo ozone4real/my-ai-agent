@@ -37,6 +37,21 @@ const taskRunSchema = new mongoose.Schema(
       type: Boolean,
       required: true,
       default: false
+    },
+    /** Token spend for the run, plus the sizes needed to attribute it. */
+    usage: {
+      type: new mongoose.Schema(
+        {
+          calls: Number,
+          inputTokens: Number,
+          cacheReadTokens: Number,
+          outputTokens: Number,
+          firstCallInputTokens: Number,
+          replayedChars: Number,
+          promptChars: Number,
+        },
+        { _id: false }
+      ),
     }
   },
   {

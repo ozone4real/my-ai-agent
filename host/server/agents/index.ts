@@ -13,6 +13,7 @@ import ServersDefinition, { SERVER_TOOL_ALLOWLIST } from "../../../mcp_servers/s
 import { handleElicitation } from "../services/elicitation.js";
 import { convert, serialize, toLangChainHistory } from "./message_converters/chat.js";
 import type { ChatMessage, LangChainMessage } from "./message_converters/chat.js";
+import { UsageTracker } from "./usage.js";
 
 
 // Defined in ./models.js so Settings can name a model without importing the
@@ -95,6 +96,8 @@ export interface AgentOptions {
    * consumes the tokens as they arrive.
    */
   streaming?: boolean
+  /** Tags this agent's per-call usage log lines, e.g. with the task id. */
+  usageLabel?: string
 }
 
 /**
@@ -123,6 +126,7 @@ const OPERATING_INSTRUCTIONS = (() => {
 export class Agent {
   public agent: MCPAgent
   private llm: ChatDeepSeek | ChatAnthropic | ChatOpenRouter
+  public readonly usage: UsageTracker
 
   public mcpServers: Record<string, MCPServerConfig> = ServersDefinition
 
@@ -177,6 +181,7 @@ export class Agent {
       userInstructions: options.userInstructions ?? settings.instructions ?? undefined,
       conversationId: options.conversationId,
       streaming: options.streaming,
+      usageLabel: options.usageLabel,
     })
   }
 
@@ -186,6 +191,7 @@ export class Agent {
     preferredName,
     userInstructions,
     streaming = true,
+    usageLabel,
   }: AgentOptions = {}) {
     // The model classes declare unrelated constructor signatures, so TypeScript
     // refuses to construct the union (TS2351). The fields passed below are
@@ -197,11 +203,14 @@ export class Agent {
     const apiKeyEnv = MODEL_API_KEY_ENV[model]
     if (!apiKeyEnv) throw new Error(`No API key configured for model ${model}`)
 
+    this.usage = new UsageTracker(usageLabel)
+
     const llm = new Model({
       model,
       maxTokens: 10000,
       apiKey: process.env[apiKeyEnv],
-      streaming
+      streaming,
+      callbacks: [this.usage],
     })
 
     this.llm = llm
