@@ -7,7 +7,7 @@ export interface UsageTotals {
   inputTokens: number
   cacheReadTokens: number
   outputTokens: number
-  /** The fixed prefix — tool schemas, instructions, replay, prompt — before any step. */
+  /** The fixed prefix — tool schemas, instructions, task notes, prompt — before any step. */
   firstCallInputTokens: number
 }
 

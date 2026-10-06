@@ -66,6 +66,16 @@ const TaskSchema = new mongoose.Schema(
     limit: {
       type: Number,
       required: false
+    },
+    /**
+     * What runs of this task record for later ones, given to every run.
+     *
+     * Append-only, through the `append-task-notes` tool, so a run can add to
+     * the record but never rewrite what earlier runs left.
+     */
+    notes: {
+      type: String,
+      required: false
     }
   },
   { timestamps: true }

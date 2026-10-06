@@ -154,6 +154,50 @@ export const getTask = server.tool(
   }
 );
 
+export const appendTaskNotes = server.tool(
+  {
+    name: "append-task-notes",
+    title: "Append Task Notes",
+    description:
+      "Add to a scheduled task's notes, which every later run of that task is given. Record what later runs need: what was done (one short line or table row per item), what was skipped and why, and quirks worth remembering. Append each entry as soon as the work it records is done, not at the end of the run. Notes can only be added to, never edited.",
+    schema: z.object({
+      id: z.string().describe("The task's id, as given at the start of the run."),
+      text: z
+        .string()
+        .min(1)
+        .max(2000)
+        .describe("What to add. Keep it short: a line or a table row, not a report."),
+    }),
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  async ({ id, text }) => {
+    await connectDB();
+
+    if (!Types.ObjectId.isValid(id)) {
+      return { isError: true, content: [{ type: "text", text: `Not a valid task id: ${id}` }] };
+    }
+
+    // One atomic update rather than load-and-save: save() would fire the hook
+    // that reschedules the task, and two appends can't overwrite each other.
+    // No timestamps: adding notes is not an edit of the task.
+    const result = await TaskModel.updateOne(
+      { _id: id },
+      [{ $set: { notes: { $concat: [{ $ifNull: ["$notes", ""] }, text.trimEnd(), "\n"] } } }],
+      { updatePipeline: true, timestamps: false }
+    );
+    if (!result.matchedCount) {
+      return { isError: true, content: [{ type: "text", text: `No task with id ${id}` }] };
+    }
+
+    return { content: [{ type: "text", text: "Appended to the task's notes." }] };
+  }
+);
+
 export const listTasks = server.tool(
   {
     name: "list-tasks",

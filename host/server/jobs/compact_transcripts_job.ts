@@ -32,7 +32,7 @@ export default class CompactTranscriptsJob extends ApplicationJob {
   private static readonly FINISHED: Status[] = ["success", "failed"];
 
   /** Runs kept verbatim per task — the most recent successful ones. */
-  private static readonly KEEP_VERBATIM = 5;
+  private static readonly KEEP_VERBATIM = 3;
 
   private static readonly PROMPT =
     "You are a summarising tool. The user message contains a stored record of a " +

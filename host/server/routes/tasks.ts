@@ -164,8 +164,8 @@ router.post("/:task_id/runs", async (req: Request, res: Response) => {
 /**
  * Delete one run of a task.
  *
- * App server only — deliberately not an MCP tool. The agent replays past runs
- * into later ones, so letting it delete them would let it edit its own record
+ * App server only — deliberately not an MCP tool. A failed run is given to the
+ * next one, so letting the agent delete runs would let it edit its own record
  * of what it did.
  *
  * A run still `in_progress` is refused: the worker executing it holds the
