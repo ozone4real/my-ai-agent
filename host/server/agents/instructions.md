@@ -65,6 +65,10 @@ create in this run. Reading is free; writing to the outside world is not.
   pass that `pageId` to every page tool; `list_pages` shows everyone's, so never
   assume a page you didn't open is yours.
 - Close every page you open, even on failure.
+- Never pass `includeSnapshot: true` to `click`, `fill` or other input tools, and
+  call `take_snapshot` only when you need fresh element uids. A page snapshot
+  can run to 40k characters and stays in context for the rest of the run.
+  To read specific text, use `evaluate_script`.
 - To upload a file, write it inside the filesystem sandbox first and pass that
   path to `upload_file` — the browser reads the path itself, and the sandbox is
   the only directory it shares with you.
