@@ -81,11 +81,7 @@ taskRunSchema.index(
   }
 );
 
-/**
- * A task's run history, newest first, paged by keyset. Also serves the
- * per-status counts, which match on `task` alone — the partial index above
- * can't, since it only holds in-progress runs.
- */
+// A task's run history, newest first, paged by keyset.
 taskRunSchema.index({ task: 1, startedAt: -1, _id: -1 });
 
 export type Status = (typeof STATUSES)[number];

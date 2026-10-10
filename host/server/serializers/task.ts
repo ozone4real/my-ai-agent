@@ -27,20 +27,28 @@ export const taskShape = z.object({
   updatedAt: z.string().describe("ISO 8601 last-modified timestamp"),
 });
 
-export const taskRunShape = z.object({
+/**
+ * A run as lists carry it. No transcript: one can run to megabytes, so a list
+ * of them is slow to send and far too much to hand a model.
+ */
+export const taskRunSummaryShape = z.object({
   id: z.string().describe("The run's id"),
   status: z.enum(STATUSES).describe("Outcome of the run"),
-  transcript: z
-    .string()
-    .nullable()
-    .describe("The agent's conversation history for this run, when recorded"),
   startedAt: z.string().describe("ISO 8601 timestamp the run began"),
   // TaskRun maps updatedAt to endedAt, so this only differs from startedAt once
   // the run has actually finished and written its status.
   endedAt: z.string().describe("ISO 8601 timestamp the run last changed"),
 });
 
+export const taskRunShape = taskRunSummaryShape.extend({
+  transcript: z
+    .string()
+    .nullable()
+    .describe("The agent's conversation history for this run, when recorded"),
+});
+
 export type SerializedTask = z.infer<typeof taskShape>;
+export type SerializedTaskRunSummary = z.infer<typeof taskRunSummaryShape>;
 export type SerializedTaskRun = z.infer<typeof taskRunShape>;
 
 export const serializeTask = (task: TaskDocument): SerializedTask => ({
@@ -55,12 +63,16 @@ export const serializeTask = (task: TaskDocument): SerializedTask => ({
   updatedAt: task.updatedAt.toISOString(),
 });
 
-export const serializeTaskRun = (run: TaskRunDocument): SerializedTaskRun => ({
+export const serializeTaskRunSummary = (run: TaskRunDocument): SerializedTaskRunSummary => ({
   id: String(run._id),
-  status: run.status as SerializedTaskRun["status"],
-  transcript: run.transcript ?? null,
+  status: run.status as SerializedTaskRunSummary["status"],
   startedAt: run.startedAt.toISOString(),
   endedAt: run.endedAt.toISOString(),
+});
+
+export const serializeTaskRun = (run: TaskRunDocument): SerializedTaskRun => ({
+  ...serializeTaskRunSummary(run),
+  transcript: run.transcript ?? null,
 });
 
 /**

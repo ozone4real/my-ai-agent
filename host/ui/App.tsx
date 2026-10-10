@@ -494,19 +494,9 @@ export function App() {
    * further down has gone.
    */
   const dropRun = useCallback((runId: string) => {
-    setActiveTask((current) => {
-      const run = current?.runs.find((r) => r.id === runId);
-      if (!current || !run) return current;
-      return {
-        ...current,
-        runs: current.runs.filter((r) => r.id !== runId),
-        runCounts: {
-          ...current.runCounts,
-          total: current.runCounts.total - 1,
-          [run.status]: current.runCounts[run.status] - 1,
-        },
-      };
-    });
+    setActiveTask(
+      (current) => current && { ...current, runs: current.runs.filter((r) => r.id !== runId) }
+    );
   }, []);
 
   const openTask = useCallback(

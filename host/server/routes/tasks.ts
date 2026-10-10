@@ -1,13 +1,14 @@
 import { Router } from "express"
 import type { Request, Response } from "express"
 import { Types } from "mongoose"
-import { TaskModel } from "../models/task"
-import { TaskRunModel, type Status } from "../models/task_run"
+import { TaskModel, type TaskDocument } from "../models/task"
+import { TaskRunModel } from "../models/task_run"
 import { afterCursor, newestFirst, PAGE_SIZE, toPage } from "./pagination"
 import {
   applyTaskUpdate,
   serializeTask,
   serializeTaskRun,
+  serializeTaskRunSummary,
   taskCreateShape,
   taskUpdateShape,
 } from "../serializers/task"
@@ -29,28 +30,31 @@ const findTask = async (rawId: unknown, res: Response) => {
   return task
 }
 
-/** One page of a task's runs, newest first. `after` comes from afterCursor. */
+/**
+ * One run of a task. Scoped to the task, so a run id from another task 404s
+ * rather than being reached through the wrong parent.
+ */
+const findRun = async (task: TaskDocument, rawId: unknown, res: Response) => {
+  const id = String(rawId)
+  const run = Types.ObjectId.isValid(id)
+    ? await TaskRunModel.findOne({ _id: id, task: task._id })
+    : null
+  if (!run) res.status(404).json({ error: "Task run not found" })
+  return run
+}
+
+/**
+ * One page of a task's runs, newest first. `after` comes from afterCursor.
+ * Transcripts are left in the database — see `GET /:task_id/runs/:run_id`.
+ */
 const findRuns = async (taskId: Types.ObjectId, after: Record<string, unknown>) => {
   const rows = await TaskRunModel
     .find({ task: taskId, ...after })
+    .select("-transcript")
     .sort(newestFirst("startedAt"))
     .limit(PAGE_SIZE + 1)
   const { items, nextCursor } = toPage(rows, (run) => run.startedAt)
-  return { runs: items.map(serializeTaskRun), nextCursor }
-}
-
-/** Runs per status, over all of a task's runs rather than the loaded page. */
-const countRuns = async (taskId: Types.ObjectId) => {
-  const groups = await TaskRunModel.aggregate<{ _id: Status; count: number }>([
-    { $match: { task: taskId } },
-    { $group: { _id: "$status", count: { $sum: 1 } } },
-  ])
-  const counts = { total: 0, in_progress: 0, failed: 0, success: 0 }
-  for (const { _id, count } of groups) {
-    counts[_id] = count
-    counts.total += count
-  }
-  return counts
+  return { runs: items.map(serializeTaskRunSummary), nextCursor }
 }
 
 // Newest first, paged by keyset: pass `nextCursor` back as `?cursor=`. Runs
@@ -109,7 +113,6 @@ router.get("/:task_id", async (req: Request, res: Response) => {
 })
 
 // Newest first, paged by keyset: pass `nextCursor` back as `?cursor=`.
-// `counts` covers every run of the task, not just this page.
 router.get("/:task_id/runs", async (req: Request, res: Response) => {
   const task = await findTask(req.params.task_id, res)
   if (!task) return
@@ -117,8 +120,18 @@ router.get("/:task_id/runs", async (req: Request, res: Response) => {
   const after = afterCursor(req, res, "startedAt")
   if (!after) return
 
-  const [page, counts] = await Promise.all([findRuns(task._id, after), countRuns(task._id)])
-  res.json({ ...page, counts })
+  res.json(await findRuns(task._id, after))
+})
+
+// One run in full, transcript included.
+router.get("/:task_id/runs/:run_id", async (req: Request, res: Response) => {
+  const task = await findTask(req.params.task_id, res)
+  if (!task) return
+
+  const run = await findRun(task, req.params.run_id, res)
+  if (!run) return
+
+  res.json(serializeTaskRun(run))
 })
 
 /**
@@ -172,19 +185,8 @@ router.delete("/:task_id/runs/:run_id", async (req: Request, res: Response) => {
   const task = await findTask(req.params.task_id, res)
   if (!task) return
 
-  const runId = String(req.params.run_id)
-  if (!Types.ObjectId.isValid(runId)) {
-    res.status(404).json({ error: "Task run not found" })
-    return
-  }
-
-  // Scoped to the task, so a run id from another task 404s rather than being
-  // deleted through the wrong parent.
-  const run = await TaskRunModel.findOne({ _id: runId, task: task._id })
-  if (!run) {
-    res.status(404).json({ error: "Task run not found" })
-    return
-  }
+  const run = await findRun(task, req.params.run_id, res)
+  if (!run) return
 
   if (run.status === "in_progress") {
     res.status(409).json({
@@ -196,7 +198,7 @@ router.delete("/:task_id/runs/:run_id", async (req: Request, res: Response) => {
   }
 
   await run.deleteOne()
-  res.json({ id: runId, deleted: true })
+  res.json({ id: String(run._id), deleted: true })
 })
 
 // PATCH: an absent field means "leave it alone", not "clear it".

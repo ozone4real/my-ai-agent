@@ -4,7 +4,7 @@ import { Check, FileText, Pencil, Play, Trash2, X } from "lucide-react";
 import { Transcript } from "./Transcript";
 import type { TaskRun, TaskUpdate, TaskWithRuns } from "./api";
 import { useArmedAction } from "./useArmedAction";
-import { deleteTaskRun, getSettings, runTaskNow } from "./api";
+import { deleteTaskRun, getRunTranscript, getSettings, runTaskNow } from "./api";
 import { InfiniteScroll } from "./pagination";
 
 /** Full timestamp — a run's history is exactly where the date matters. */
@@ -25,15 +25,31 @@ function formatDuration(run: TaskRun): string | null {
 }
 
 function Run({
+  taskId,
   run,
   onDelete,
   deleting,
 }: {
+  taskId: string;
   run: TaskRun;
   onDelete: () => void;
   deleting: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  // Fetched on first open: a transcript can run to megabytes. undefined = not yet.
+  const [transcript, setTranscript] = useState<string | null>();
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
+
+  const toggleTranscript = async () => {
+    setOpen((v) => !v);
+    if (open || transcript !== undefined) return;
+    try {
+      setTranscriptError(null);
+      setTranscript(await getRunTranscript(taskId, run.id));
+    } catch (err) {
+      setTranscriptError((err as Error)?.message ?? "Could not load the transcript");
+    }
+  };
   const duration = formatDuration(run);
   // Keyed on the run id so an armed button can't carry to another run.
   const { armed: confirming, trigger: arm } = useArmedAction(onDelete, run.id);
@@ -47,8 +63,8 @@ function Run({
         <span className="run-when">{formatStamp(run.startedAt)}</span>
         {duration && <span className="run-duration">{duration}</span>}
         <div className="run-actions">
-          {run.transcript && (
-            <button className="run-toggle" onClick={() => setOpen((v) => !v)}>
+          {!running && (
+            <button className="run-toggle" onClick={() => void toggleTranscript()}>
               <FileText size={14} />
               {open ? "Hide transcript" : "Transcript"}
             </button>
@@ -66,7 +82,16 @@ function Run({
           )}
         </div>
       </div>
-      {open && run.transcript && <Transcript raw={run.transcript} />}
+      {open &&
+        (transcriptError ? (
+          <div className="error">{transcriptError}</div>
+        ) : transcript === undefined ? (
+          <div className="tr-empty">Loading transcript…</div>
+        ) : transcript ? (
+          <Transcript raw={transcript} />
+        ) : (
+          <div className="tr-empty">This run recorded no transcript.</div>
+        ))}
     </li>
   );
 }
@@ -148,9 +173,8 @@ export function TaskDetail({
     setEditing(false);
   };
 
-  // From the server, not `task.runs`: that only holds the pages loaded so far.
-  const { total: runTotal, success: succeeded, failed } = task.runCounts;
-  const runInProgress = task.runCounts.in_progress > 0;
+  // A run in progress is always the newest, so it is in the first page.
+  const runInProgress = task.runs.some((run) => run.status === "in_progress");
 
   const [running, setRunning] = useState(false);
   const [runNotice, setRunNotice] = useState<{ ok: boolean; text: string } | null>(null);
@@ -329,7 +353,7 @@ export function TaskDetail({
 
       {confirming && !deleting && (
         <p className="task-warning">
-          This deletes the task and all {runTotal} of its runs.
+          This deletes the task and all of its runs.
         </p>
       )}
 
@@ -361,17 +385,9 @@ export function TaskDetail({
       )}
 
       <div className="runs">
-        <h3>
-          Runs <span className="muted">({runTotal})</span>
-          {runTotal > 0 && (
-            <span className="muted">
-              {" "}
-              — {succeeded} succeeded, {failed} failed
-            </span>
-          )}
-        </h3>
+        <h3>Runs</h3>
 
-        {runTotal === 0 ? (
+        {task.runs.length === 0 && !task.nextRunsCursor ? (
           <div className="empty small">
             This task hasn't run yet. Runs appear here once the job executes it.
           </div>
@@ -380,6 +396,7 @@ export function TaskDetail({
             {task.runs.map((run) => (
               <Run
                 key={run.id}
+                taskId={task.id}
                 run={run}
                 onDelete={() => void removeRun(run.id)}
                 deleting={deletingRun === run.id}

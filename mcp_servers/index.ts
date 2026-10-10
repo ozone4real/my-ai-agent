@@ -13,7 +13,9 @@ import {
   applyTaskUpdate,
   serializeTask,
   serializeTaskRun,
+  serializeTaskRunSummary,
   taskRunShape,
+  taskRunSummaryShape,
   taskShape,
   taskUpdateShape,
 } from "../host/server/serializers/task.js";
@@ -158,7 +160,7 @@ export const listTaskRuns = server.tool(
     name: "list-task-runs",
     title: "List Task Runs",
     description:
-      "List the runs of one scheduled task, newest first. Use this to check whether a task has been running and how it went.",
+      "List the runs of one scheduled task, newest first, without their transcripts. Use this to check whether a task has been running and whether its runs succeeded; call get-task-run for what one run did.",
     schema: z.object({
       id: z.string().describe("The task's id, as returned by schedule-task."),
       limit: z
@@ -176,7 +178,7 @@ export const listTaskRuns = server.tool(
       openWorldHint: false,
     },
     outputSchema: z.object({
-      runs: z.array(taskRunShape).describe("Runs of the task, newest first"),
+      runs: z.array(taskRunSummaryShape).describe("Runs of the task, newest first"),
       total: z.number().describe("Total runs of the task, ignoring the limit"),
     }),
   },
@@ -193,11 +195,49 @@ export const listTaskRuns = server.tool(
     }
 
     const [runs, total] = await Promise.all([
-      TaskRunModel.find({ task: task._id }).sort({ startedAt: -1 }).limit(limit),
+      TaskRunModel.find({ task: task._id }).select("-transcript").sort({ startedAt: -1 }).limit(limit),
       TaskRunModel.countDocuments({ task: task._id }),
     ]);
 
-    const payload = { runs: runs.map(serializeTaskRun), total };
+    const payload = { runs: runs.map(serializeTaskRunSummary), total };
+    return {
+      content: [{ type: "text", text: JSON.stringify(payload) }],
+      structuredContent: payload,
+    };
+  }
+);
+
+export const getTaskRun = server.tool(
+  {
+    name: "get-task-run",
+    title: "Get Task Run",
+    description:
+      "Fetch one run of a scheduled task by id, with its transcript: what the agent did on that run. Transcripts can be very long, so fetch only the run you need.",
+    schema: z.object({
+      id: z.string().describe("The run's id, as returned by list-task-runs."),
+    }),
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    outputSchema: taskRunShape,
+  },
+  async ({ id }) => {
+    await connectDB();
+
+    if (!Types.ObjectId.isValid(id)) {
+      return { isError: true, content: [{ type: "text", text: `Not a valid run id: ${id}` }] };
+    }
+
+    const run = await TaskRunModel.findById(id);
+    const own = run && (await TaskModel.exists({ creator: "assistant", _id: run.task }));
+    if (!run || !own) {
+      return { isError: true, content: [{ type: "text", text: `No run with id ${id}` }] };
+    }
+
+    const payload = serializeTaskRun(run);
     return {
       content: [{ type: "text", text: JSON.stringify(payload) }],
       structuredContent: payload,
