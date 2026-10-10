@@ -195,6 +195,9 @@ export default class AgenticJob extends ApplicationJob {
       "If later runs need to know about something you do, record it with " +
       `append-task-notes (id ${taskId}) as soon as it is done, not at the end — ` +
       "a run that dies midway must still leave its record.\n\n" +
+      "Everything needed to carry the task out is already here. Do not look it " +
+      "up with get-task or list-task-runs — their output would only sit in your " +
+      "context for the rest of the run.\n\n" +
       "Your own run begins with the instruction that follows this block."
     )
   }

@@ -40,11 +40,6 @@ export const taskRunShape = z.object({
   endedAt: z.string().describe("ISO 8601 timestamp the run last changed"),
 });
 
-/** A task together with its run history, newest run first. */
-export const taskWithRunsShape = taskShape.extend({
-  runs: z.array(taskRunShape).describe("Runs of this task, newest first"),
-});
-
 export type SerializedTask = z.infer<typeof taskShape>;
 export type SerializedTaskRun = z.infer<typeof taskRunShape>;
 

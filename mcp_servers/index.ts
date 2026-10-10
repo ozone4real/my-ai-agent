@@ -13,9 +13,9 @@ import {
   applyTaskUpdate,
   serializeTask,
   serializeTaskRun,
+  taskRunShape,
   taskShape,
   taskUpdateShape,
-  taskWithRunsShape,
 } from "../host/server/serializers/task.js";
 
 const server = new MCPServer({
@@ -120,9 +120,9 @@ export const getTask = server.tool(
     name: "get-task",
     title: "Get Task",
     description:
-      "Fetch one scheduled task by id, together with its run history (newest run first). Use this to check whether a task has been running and how it went.",
+      "Fetch one scheduled task by id. Run history is not included — call list-task-runs for that.",
     schema: z.object({
-      id: z.string().describe("The task's id, as returned by list-tasks or schedule-task."),
+      id: z.string().describe("The task's id, as returned by schedule-task."),
     }),
     annotations: {
       readOnlyHint: true,
@@ -130,7 +130,7 @@ export const getTask = server.tool(
       idempotentHint: true,
       openWorldHint: false,
     },
-    outputSchema: taskWithRunsShape,
+    outputSchema: taskShape,
   },
   async ({ id }) => {
     await connectDB();
@@ -144,9 +144,60 @@ export const getTask = server.tool(
       return { isError: true, content: [{ type: "text", text: `No task with id ${id}` }] };
     }
 
-    const runs = await TaskRunModel.find({ task: task._id }).sort({ startedAt: -1 });
-    const payload = { ...serializeTask(task), runs: runs.map(serializeTaskRun) };
+    const payload = serializeTask(task);
 
+    return {
+      content: [{ type: "text", text: JSON.stringify(payload) }],
+      structuredContent: payload,
+    };
+  }
+);
+
+export const listTaskRuns = server.tool(
+  {
+    name: "list-task-runs",
+    title: "List Task Runs",
+    description:
+      "List the runs of one scheduled task, newest first. Use this to check whether a task has been running and how it went.",
+    schema: z.object({
+      id: z.string().describe("The task's id, as returned by schedule-task."),
+      limit: z
+        .number()
+        .int()
+        .positive()
+        .max(50)
+        .default(10)
+        .describe("How many runs to return, newest first. Defaults to 10."),
+    }),
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+    outputSchema: z.object({
+      runs: z.array(taskRunShape).describe("Runs of the task, newest first"),
+      total: z.number().describe("Total runs of the task, ignoring the limit"),
+    }),
+  },
+  async ({ id, limit }) => {
+    await connectDB();
+
+    if (!Types.ObjectId.isValid(id)) {
+      return { isError: true, content: [{ type: "text", text: `Not a valid task id: ${id}` }] };
+    }
+
+    const task = await TaskModel.exists({ creator: "assistant", _id: id });
+    if (!task) {
+      return { isError: true, content: [{ type: "text", text: `No task with id ${id}` }] };
+    }
+
+    const [runs, total] = await Promise.all([
+      TaskRunModel.find({ task: task._id }).sort({ startedAt: -1 }).limit(limit),
+      TaskRunModel.countDocuments({ task: task._id }),
+    ]);
+
+    const payload = { runs: runs.map(serializeTaskRun), total };
     return {
       content: [{ type: "text", text: JSON.stringify(payload) }],
       structuredContent: payload,
@@ -198,50 +249,6 @@ export const appendTaskNotes = server.tool(
   }
 );
 
-export const listTasks = server.tool(
-  {
-    name: "list-tasks",
-    title: "List Tasks",
-    description:
-      "List scheduled tasks, newest first. Run history is not included — call get-task with an id for that.",
-    schema: z.object({
-      limit: z
-        .number()
-        .int()
-        .positive()
-        .max(200)
-        .default(50)
-        .describe("How many tasks to return, newest first. Defaults to 50."),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-    // Any-JSON roots are legal in the 2026 protocol, but an object leaves room
-    // to add fields later without breaking clients that already read `tasks`.
-    outputSchema: z.object({
-      tasks: z.array(taskShape).describe("Matching tasks, newest first"),
-      total: z.number().describe("Total tasks stored, ignoring the limit"),
-    }),
-  },
-  async ({ limit }) => {
-    await connectDB();
-
-    const [tasks, total] = await Promise.all([
-      TaskModel.find({ creator: "assistant" }).sort({ createdAt: -1 }).limit(limit),
-      TaskModel.countDocuments(),
-    ]);
-
-    const payload = { tasks: tasks.map(serializeTask), total };
-    return {
-      content: [{ type: "text", text: JSON.stringify(payload) }],
-      structuredContent: payload,
-    };
-  }
-);
-
 /**
  * Load a task for a write, refusing anything the assistant didn't create.
  *
@@ -288,7 +295,7 @@ export const updateTask = server.tool(
     description:
       "Change the prompt, schedule or run limit of a scheduled task. Only tasks the assistant created can be changed; user-created ones are refused. Returns the updated task.",
     schema: z.object({
-      id: z.string().describe("The task's id, as returned by list-tasks."),
+      id: z.string().describe("The task's id, as returned by schedule-task."),
       prompt: z
         .string()
         .min(1)
@@ -356,7 +363,7 @@ export const deleteTask = server.tool(
     description:
       "Delete a scheduled task and its run history. Only tasks the assistant created can be deleted; user-created ones are refused.",
     schema: z.object({
-      id: z.string().describe("The task's id, as returned by list-tasks."),
+      id: z.string().describe("The task's id, as returned by schedule-task."),
     }),
     annotations: {
       readOnlyHint: false,

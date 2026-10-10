@@ -23,7 +23,7 @@ export default class SSEStream {
     return true;
   }
 
-  async stream(res: Response, input: any[], streamCallback: (...args: any) => AsyncGenerator<any>, doneCallback: (args: any) => Promise<void>, meta?: Record<string, unknown>) {
+  async stream(res: Response, input: any[], streamCallback: (...args: any) => AsyncGenerator<any>, doneCallback: (args: any) => Promise<Record<string, unknown> | void>, meta?: Record<string, unknown>) {
     res.set({
       "content-type": "text/event-stream",
       "cache-control": "no-cache",
@@ -48,9 +48,11 @@ export default class SSEStream {
     try {
       let data
       for await (data of result) res.write(this.format("token", data))
-      await doneCallback(data)
+      // Whatever the callback returns rides on the closing frame, e.g. the id
+      // of the reply it just stored.
+      const outcome = await doneCallback(data)
 
-      if (!aborted) res.write(this.format("done", {}));
+      if (!aborted) res.write(this.format("done", outcome ?? {}));
     } catch (err) {
       // The full error still goes to the log — the client gets the part it can
       // do something about, which for an exhausted balance or a rate limit is

@@ -30,7 +30,7 @@ const streamTurn = async (
   res: Response,
   input: any[],
   generator: (...args: any) => AsyncGenerator<any>,
-  done: (data: AgentStreamEventPayload | undefined) => Promise<void>,
+  done: (data: AgentStreamEventPayload | undefined) => Promise<Record<string, unknown> | void>,
   meta?: Record<string, unknown>
 ) => {
   const asked = new Set<string>()
@@ -87,8 +87,8 @@ const createMessage = async(content: string, conversation: Document, session: Cl
 const createConversation = async (content: string, model?: string) => {
   const conversation = new ConversationModel({ agentModel: model })
   await conversation.save()
-  await createMessage(content, conversation, null)
-  return conversation
+  const message = await createMessage(content, conversation, null)
+  return { conversation, message }
 }
 
 const serializeMessage = (message: MessageDocument) => ({
@@ -205,7 +205,7 @@ router.post("/", async (req: Request, res: Response) => {
     return
   }
   const params = parsed.data
-  const conversation = await createConversation(params.message, params.model)
+  const { conversation, message } = await createConversation(params.message, params.model)
 
   const agent = await Agent.withSettings({
     conversationId: String(conversation._id),
@@ -215,10 +215,10 @@ router.post("/", async (req: Request, res: Response) => {
   if(!SSEStream.wantsStream(req)) {
     const reply = await runTurn(res, () => agent.run(params.message))
     if (reply === null) return
-    await createMessage(reply, conversation, null, "assistant")
+    const stored = await createMessage(reply, conversation, null, "assistant")
     // Without this return the handler fell through and `new SSEStream(req)`
     // threw, after the response had already been sent.
-    res.json({ conversationId: conversation._id, reply })
+    res.json({ conversationId: conversation._id, reply, messageId: message._id, replyId: stored._id })
     return
   }
 
@@ -228,8 +228,9 @@ router.post("/", async (req: Request, res: Response) => {
   await streamTurn(sse, res, [params.message], agent.streamEvents.bind(agent), async (data: AgentStreamEventPayload | undefined) => {
      // Only the terminal payload carries the reply text; "working" payloads are steps.
     if (data?.phase !== "done") return
-    await createMessage(String(data.content), conversation, null, "assistant")
-  }, { conversationId: String(conversation._id) })
+    const stored = await createMessage(String(data.content), conversation, null, "assistant")
+    return { messageId: String(stored._id) }
+  }, { conversationId: String(conversation._id), messageId: String(message._id) })
 })
 
 router.post("/:conversation_id/messages", async(req: Request, res: Response) => {
@@ -264,7 +265,7 @@ router.post("/:conversation_id/messages", async(req: Request, res: Response) => 
     content: message.content,
   }))
 
-  await createMessage(params.message, conversation, null)
+  const message = await createMessage(params.message, conversation, null)
 
   // A model on the request switches the thread from here on, so later turns
   // keep using it without the client having to resend it.
@@ -281,8 +282,8 @@ router.post("/:conversation_id/messages", async(req: Request, res: Response) => 
   if (!SSEStream.wantsStream(req)) {
     const reply = await runTurn(res, () => agent.run(params.message, history))
     if (reply === null) return
-    await createMessage(reply, conversation, null, "assistant")
-    res.json({ conversationId: conversation._id, reply })
+    const stored = await createMessage(reply, conversation, null, "assistant")
+    res.json({ conversationId: conversation._id, reply, messageId: message._id, replyId: stored._id })
     return
   }
 
@@ -291,8 +292,47 @@ router.post("/:conversation_id/messages", async(req: Request, res: Response) => 
   await streamTurn(sse, res, [params.message, history], agent.streamEvents.bind(agent), async (data: AgentStreamEventPayload | undefined) => {
      // Only the terminal payload carries the reply text; "working" payloads are steps.
     if (data?.phase !== "done") return
-    await createMessage(String(data.content), conversation, null, "assistant")
+    const stored = await createMessage(String(data.content), conversation, null, "assistant")
+    return { messageId: String(stored._id) }
+  }, { messageId: String(message._id) })
+})
+
+/**
+ * Delete a message and every one after it, so the thread can be picked up
+ * again from that point.
+ */
+router.delete("/:conversation_id/messages/:message_id", async (req: Request, res: Response) => {
+  const conversationId = String(req.params.conversation_id)
+  const messageId = String(req.params.message_id)
+  if (!Types.ObjectId.isValid(conversationId) || !Types.ObjectId.isValid(messageId)) {
+    res.status(404).json({ error: "Message not found" })
+    return
+  }
+
+  const conversation = await ConversationModel.findById(conversationId)
+  const message = conversation && await MessageModel.findOne({ _id: messageId, conversation: conversation._id })
+  if (!conversation || !message) {
+    res.status(404).json({ error: "Message not found" })
+    return
+  }
+
+  // "After" in the order the thread reads in: createdAt, then _id for ties.
+  const { deletedCount } = await MessageModel.deleteMany({
+    conversation: conversation._id,
+    $or: [
+      { createdAt: { $gt: message.createdAt } },
+      { createdAt: message.createdAt, _id: { $gte: message._id } },
+    ],
   })
+
+  // The save hook only moves the stamp forward, so wind it back here.
+  const newest = await MessageModel
+    .findOne({ conversation: conversation._id })
+    .sort({ createdAt: -1, _id: -1 })
+  conversation.lastMessageAt = newest?.createdAt ?? conversation.createdAt
+  await conversation.save()
+
+  res.json({ deleted: true, deletedMessages: deletedCount ?? 0 })
 })
 
 /**

@@ -4,6 +4,7 @@
 //   GET  /conversations/:id                   one thread with its messages
 //   POST /conversations                       start a thread (streams the reply)
 //   POST /conversations/:id/messages          continue a thread (streams the reply)
+//   DELETE /conversations/:id/messages/:mid   drop a message and all after it
 //
 // The two POSTs request a stream (Accept: text/event-stream) but degrade
 // gracefully to a plain JSON response, so they work no matter how you implement
@@ -11,19 +12,19 @@
 //
 // Streaming contract — the server wraps every agent payload in a `token` event
 // whose data is an AgentStreamEventPayload:
-//   event: meta   data: { "conversationId": "..." }  // once, before the tokens
+//   event: meta   data: { "conversationId": "...", "messageId": "..." }  // once, before the tokens
 //   event: token  data: { "phase": "reasoning", "content": "…thinking text…" }
 //   event: token  data: { "phase": "working",   "content": { tool, args } }
 //   event: token  data: { "phase": "done",      "content": "the final reply" }
 //   event: error  data: { "message": "..." }
-//   event: done   data: {}                    // end of turn
+//   event: done   data: { "messageId": "..." } // end of turn; the stored reply's id
 //
 // Only the `done` payload holds the reply, and it always arrives last. The
 // `reasoning` ones are the model's thinking, batched server-side into ~50-word
 // pieces; `working` ones are tool calls, shown as transient status.
 //
 // Non-streaming contract (application/json):
-//   { "reply": "...", "conversationId": "..." }   on success
+//   { "reply": "...", "conversationId": "...", "messageId": "...", "replyId": "..." }   on success
 //   { "error": "..." }                            on failure
 
 const API = "/api";
@@ -124,7 +125,7 @@ export interface RunCounts {
   success: number;
 }
 
-/** A task plus the first page of its run history, newest run first. */
+/** A task joined with its run history, as the task page holds it. */
 export type TaskWithRuns = Task & {
   runs: TaskRun[];
   /** Continues `runs` through `listTaskRuns`; null when they're all here. */
@@ -134,7 +135,7 @@ export type TaskWithRuns = Task & {
 
 /**
  * One page of tasks, newest first. Omit `cursor` for the first page. Runs are
- * not included — use `getTask` for those.
+ * not included — use `listTaskRuns` for those.
  */
 export async function listTasks(
   cursor?: string | null,
@@ -149,32 +150,42 @@ export async function listTasks(
   return { items: data.tasks ?? [], nextCursor: data.nextCursor ?? null };
 }
 
-/** The page of a task's runs after `cursor`, newest first. */
+/**
+ * One page of a task's runs, newest first. Omit `cursor` for the first page.
+ * `counts` covers every run, loaded or not.
+ */
 export async function listTaskRuns(
   taskId: string,
-  cursor: string,
+  cursor?: string | null,
   signal?: AbortSignal
-): Promise<Page<TaskRun>> {
+): Promise<Page<TaskRun> & { counts: RunCounts }> {
   const res = await fetch(
     withCursor(`${TASKS_ENDPOINT}/${encodeURIComponent(taskId)}/runs`, cursor),
     { headers: { accept: "application/json" }, signal }
   );
   if (!res.ok) throw new Error(await readError(res));
-  const data = (await res.json()) as { runs?: TaskRun[]; nextCursor?: string | null };
-  return { items: data.runs ?? [], nextCursor: data.nextCursor ?? null };
+  const data = (await res.json()) as {
+    runs?: TaskRun[];
+    nextCursor?: string | null;
+    counts: RunCounts;
+  };
+  return { items: data.runs ?? [], nextCursor: data.nextCursor ?? null, counts: data.counts };
 }
 
-/** One task with the first page of its run history. */
-export async function getTask(
-  taskId: string,
-  signal?: AbortSignal
-): Promise<TaskWithRuns> {
+/** One task, without its runs. */
+export async function getTask(taskId: string, signal?: AbortSignal): Promise<Task> {
   const res = await fetch(`${TASKS_ENDPOINT}/${encodeURIComponent(taskId)}`, {
     headers: { accept: "application/json" },
     signal,
   });
   if (!res.ok) throw new Error(await readError(res));
-  return (await res.json()) as TaskWithRuns;
+  return (await res.json()) as Task;
+}
+
+/** A task and the first page of its runs, fetched side by side. */
+export async function getTaskWithRuns(taskId: string): Promise<TaskWithRuns> {
+  const [task, runs] = await Promise.all([getTask(taskId), listTaskRuns(taskId)]);
+  return { ...task, runs: runs.items, nextRunsCursor: runs.nextCursor, runCounts: runs.counts };
 }
 
 /** The fields required to create a task by hand. */
@@ -259,6 +270,20 @@ export async function deleteConversation(conversationId: string): Promise<number
   return data.deletedMessages ?? 0;
 }
 
+/** Deletes a message and every later one in the thread. Returns how many went. */
+export async function deleteMessagesFrom(
+  conversationId: string,
+  messageId: string
+): Promise<number> {
+  const res = await fetch(
+    `${ENDPOINT}/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "DELETE", headers: { accept: "application/json" } }
+  );
+  if (!res.ok) throw new Error(await readError(res));
+  const data = (await res.json()) as { deletedMessages?: number };
+  return data.deletedMessages ?? 0;
+}
+
 /** A tool invocation the agent has started. */
 export interface AgentToolCall {
   /** Tool name as registered by its MCP server, e.g. "searxng_web_search". */
@@ -333,6 +358,10 @@ export interface ChatHandlers {
    * a new conversation — that id is the only way to continue the thread later.
    */
   onConversation?: (conversationId: string) => void;
+  /** The sent message was stored; its id is what deleting it later needs. */
+  onMessageStored?: (messageId: string) => void;
+  /** Likewise for the reply, once the turn has finished. */
+  onReplyStored?: (messageId: string) => void;
   /** Abort the request (e.g. a Stop button). */
   signal?: AbortSignal;
 }
@@ -440,12 +469,16 @@ export async function sendChat(
       result?: string;
       error?: string;
       conversationId?: string;
+      messageId?: string;
+      replyId?: string;
     };
     if (data.error) {
       handlers.onError?.(data.error);
       throw new Error(data.error);
     }
     if (data.conversationId) handlers.onConversation?.(data.conversationId);
+    if (data.messageId) handlers.onMessageStored?.(data.messageId);
+    if (data.replyId) handlers.onReplyStored?.(data.replyId);
     const text = data.reply ?? data.result ?? "";
     if (text) handlers.onReply?.(text);
     return text;
@@ -490,6 +523,7 @@ async function readSseStream(
             if (payload?.conversationId) {
               handlers.onConversation?.(String(payload.conversationId));
             }
+            if (payload?.messageId) handlers.onMessageStored?.(String(payload.messageId));
             break;
           case "token": {
             if (payload?.phase === "done") {
@@ -512,6 +546,7 @@ async function readSseStream(
             );
             break;
           case "done":
+            if (payload?.messageId) handlers.onReplyStored?.(String(payload.messageId));
             return reply;
         }
       }

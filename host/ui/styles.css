@@ -331,10 +331,42 @@ body {
 }
 
 .role {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+/* Quiet until the message is hovered, like the sidebar's row delete. */
+.message-delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.message:hover .message-delete,
+.message-delete.armed,
+.message-delete:focus-visible {
+  opacity: 1;
+}
+
+.message-delete:hover:not(:disabled),
+.message-delete.armed {
+  color: var(--error);
+}
+
+.message-delete:disabled {
+  cursor: not-allowed;
 }
 
 .bubble {
@@ -1234,8 +1266,9 @@ body {
     overscroll-behavior: contain;
   }
 
-  /* No hover on touch, so the delete control can't wait for one. */
-  .row-delete {
+  /* No hover on touch, so the delete controls can't wait for one. */
+  .row-delete,
+  .message-delete {
     opacity: 1;
   }
 

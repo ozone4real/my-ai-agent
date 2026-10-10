@@ -4,9 +4,10 @@ import { ArrowUp, Menu, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
 import Markdown from "./Markdown";
 import {
   deleteConversation,
+  deleteMessagesFrom,
   deleteTask,
   getConversation,
-  getTask,
+  getTaskWithRuns,
   listConversations,
   listTaskRuns,
   listTasks,
@@ -32,6 +33,8 @@ import { appendPage, emptyPage, InfiniteScroll, mergeFirstPage } from "./paginat
 
 interface Message {
   id: string;
+  /** Its id in the database. Unset until stored, and for a reply that never landed. */
+  serverId?: string;
   role: "user" | "assistant";
   /** The effective reply — only ever set from the `done` payload. */
   content: string;
@@ -141,6 +144,35 @@ function formatWhen(iso: string): string {
   return sameDay
     ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
     : date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+/** Deletes a message and everything after it, behind a two-step confirm. */
+function MessageDelete({
+  messageId,
+  disabled,
+  onDelete,
+}: {
+  messageId: string;
+  disabled: boolean;
+  onDelete: () => void;
+}) {
+  const { armed, trigger } = useArmedAction(onDelete, messageId);
+  const label = armed
+    ? "Click again to delete this and all later messages"
+    : "Delete this and all later messages";
+
+  return (
+    <button
+      className={`message-delete ${armed ? "armed" : ""}`}
+      title={label}
+      aria-label={label}
+      disabled={disabled}
+      onClick={trigger}
+    >
+      <Trash2 size={13} />
+      {armed && "Delete from here?"}
+    </button>
+  );
 }
 
 function ConversationRow({
@@ -394,7 +426,7 @@ export function App() {
     setLoadingTask(true);
     void (async () => {
       try {
-        const detail = await getTask(taskId);
+        const detail = await getTaskWithRuns(taskId);
         if (!cancelled) {
           setActiveTask(detail);
           setListError(null);
@@ -421,7 +453,7 @@ export function App() {
     const id = taskIdRef.current;
     if (!id) return;
     try {
-      const fresh = await getTask(id);
+      const fresh = await getTaskWithRuns(id);
       setActiveTask((current) => {
         if (!current || current.id !== fresh.id) return current;
         const runs = mergeFirstPage(
@@ -545,6 +577,25 @@ export function App() {
     [busy, navigate]
   );
 
+  const removeMessagesFrom = useCallback(
+    async (message: Message) => {
+      const conversationId = activeIdRef.current;
+      if (busy || !conversationId || !message.serverId) return;
+      try {
+        await deleteMessagesFrom(conversationId, message.serverId);
+        setMessages((prev) => {
+          const index = prev.findIndex((m) => m.id === message.id);
+          return index < 0 ? prev : prev.slice(0, index);
+        });
+        void refreshConversations();
+      } catch (err) {
+        const error = (err as Error)?.message ?? "Could not delete messages";
+        setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, error } : m)));
+      }
+    },
+    [busy, refreshConversations]
+  );
+
   /**
    * Answer a question and release the blocked turn.
    *
@@ -610,6 +661,7 @@ export function App() {
         setMessages(
           detail.messages.map((m) => ({
             id: m.id,
+            serverId: m.id,
             role: m.author,
             content: m.content,
             steps: 0,
@@ -690,6 +742,8 @@ export function App() {
             loadedIdRef.current = conversationId;
             navigate(`/conversations/${conversationId}`, { replace: true });
           },
+          onMessageStored: (id) => patchMessage(userMsg.id, (m) => ({ ...m, serverId: id })),
+          onReplyStored: (id) => patchMessage(assistantId, (m) => ({ ...m, serverId: id })),
           // Thinking, batched server-side. Append and open the panel so it
           // streams in view; it collapses itself once the reply arrives.
           onReasoning: (chunk) =>
@@ -1000,7 +1054,16 @@ export function App() {
             {!loadingThread &&
               messages.map((m) => (
                 <div key={m.id} className={`message ${m.role}`}>
-                  <div className="role">{m.role === "user" ? "You" : "Agent"}</div>
+                  <div className="role">
+                    {m.role === "user" ? "You" : "Agent"}
+                    {m.serverId && (
+                      <MessageDelete
+                        messageId={m.id}
+                        disabled={busy}
+                        onDelete={() => void removeMessagesFrom(m)}
+                      />
+                    )}
+                  </div>
                   <div className="bubble">
                     {/* Thinking sits above the answer, as in Claude/DeepSeek. */}
                     {m.reasoning && (

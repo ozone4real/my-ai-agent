@@ -100,22 +100,16 @@ router.post("/", async (req: Request, res: Response) => {
   }
 })
 
-/**
- * The task with its first page of runs. `nextRunsCursor` continues the history
- * through `GET /:task_id/runs`; `runCounts` covers every run, loaded or not.
- */
+// The task alone — its runs are under `GET /:task_id/runs`.
 router.get("/:task_id", async (req: Request, res: Response) => {
   const task = await findTask(req.params.task_id, res)
   if (!task) return
 
-  const [{ runs, nextCursor }, runCounts] = await Promise.all([
-    findRuns(task._id, {}),
-    countRuns(task._id),
-  ])
-  res.json({ ...serializeTask(task), runs, nextRunsCursor: nextCursor, runCounts })
+  res.json(serializeTask(task))
 })
 
 // Newest first, paged by keyset: pass `nextCursor` back as `?cursor=`.
+// `counts` covers every run of the task, not just this page.
 router.get("/:task_id/runs", async (req: Request, res: Response) => {
   const task = await findTask(req.params.task_id, res)
   if (!task) return
@@ -123,7 +117,8 @@ router.get("/:task_id/runs", async (req: Request, res: Response) => {
   const after = afterCursor(req, res, "startedAt")
   if (!after) return
 
-  res.json(await findRuns(task._id, after))
+  const [page, counts] = await Promise.all([findRuns(task._id, after), countRuns(task._id)])
+  res.json({ ...page, counts })
 })
 
 /**
