@@ -108,21 +108,12 @@ export interface Task {
   updatedAt: string;
 }
 
-/** One execution of a task. */
+/** One execution of a task. Its transcript is fetched apart — `getRunTranscript`. */
 export interface TaskRun {
   id: string;
   status: "in_progress" | "failed" | "success";
-  transcript: string | null;
   startedAt: string;
   endedAt: string;
-}
-
-/** How many runs a task has in each status, over its whole history. */
-export interface RunCounts {
-  total: number;
-  in_progress: number;
-  failed: number;
-  success: number;
 }
 
 /** A task joined with its run history, as the task page holds it. */
@@ -130,7 +121,6 @@ export type TaskWithRuns = Task & {
   runs: TaskRun[];
   /** Continues `runs` through `listTaskRuns`; null when they're all here. */
   nextRunsCursor: string | null;
-  runCounts: RunCounts;
 };
 
 /**
@@ -150,26 +140,30 @@ export async function listTasks(
   return { items: data.tasks ?? [], nextCursor: data.nextCursor ?? null };
 }
 
-/**
- * One page of a task's runs, newest first. Omit `cursor` for the first page.
- * `counts` covers every run, loaded or not.
- */
+/** One page of a task's runs, newest first. Omit `cursor` for the first page. */
 export async function listTaskRuns(
   taskId: string,
   cursor?: string | null,
   signal?: AbortSignal
-): Promise<Page<TaskRun> & { counts: RunCounts }> {
+): Promise<Page<TaskRun>> {
   const res = await fetch(
     withCursor(`${TASKS_ENDPOINT}/${encodeURIComponent(taskId)}/runs`, cursor),
     { headers: { accept: "application/json" }, signal }
   );
   if (!res.ok) throw new Error(await readError(res));
-  const data = (await res.json()) as {
-    runs?: TaskRun[];
-    nextCursor?: string | null;
-    counts: RunCounts;
-  };
-  return { items: data.runs ?? [], nextCursor: data.nextCursor ?? null, counts: data.counts };
+  const data = (await res.json()) as { runs?: TaskRun[]; nextCursor?: string | null };
+  return { items: data.runs ?? [], nextCursor: data.nextCursor ?? null };
+}
+
+/** What the agent did on one run; null if nothing was recorded. */
+export async function getRunTranscript(taskId: string, runId: string): Promise<string | null> {
+  const res = await fetch(
+    `${TASKS_ENDPOINT}/${encodeURIComponent(taskId)}/runs/${encodeURIComponent(runId)}`,
+    { headers: { accept: "application/json" } }
+  );
+  if (!res.ok) throw new Error(await readError(res));
+  const data = (await res.json()) as { transcript?: string | null };
+  return data.transcript ?? null;
 }
 
 /** One task, without its runs. */
@@ -185,7 +179,7 @@ export async function getTask(taskId: string, signal?: AbortSignal): Promise<Tas
 /** A task and the first page of its runs, fetched side by side. */
 export async function getTaskWithRuns(taskId: string): Promise<TaskWithRuns> {
   const [task, runs] = await Promise.all([getTask(taskId), listTaskRuns(taskId)]);
-  return { ...task, runs: runs.items, nextRunsCursor: runs.nextCursor, runCounts: runs.counts };
+  return { ...task, runs: runs.items, nextRunsCursor: runs.nextCursor };
 }
 
 /** The fields required to create a task by hand. */

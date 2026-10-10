@@ -782,11 +782,6 @@ body {
   margin: 22px 0 10px;
 }
 
-.runs .muted {
-  color: var(--muted);
-  font-weight: 400;
-}
-
 .empty.small {
   margin: 0;
   text-align: left;
