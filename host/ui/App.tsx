@@ -298,7 +298,9 @@ export function App() {
   // rather than wiring a handler onto each row.
   useEffect(() => setNavOpen(false), [pathname]);
   // On narrow screens the document scrolls, so a new page must start at its top.
-  useEffect(() => window.scrollTo(0, 0), [pathname]);
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [pathname]);
   const [busy, setBusy] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
