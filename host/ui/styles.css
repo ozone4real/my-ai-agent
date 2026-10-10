@@ -117,6 +117,9 @@ body {
 
 .row-delete {
   flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 26px;
   border: none;
   background: none;
@@ -181,12 +184,14 @@ body {
   letter-spacing: 0.05em;
 }
 
-.btn.new {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--border);
+.btn.new,
+.sidebar-head .btn {
   padding: 5px 12px;
   font-size: 13px;
+}
+
+.sidebar-head .btn.icon {
+  padding: 5px 8px;
 }
 
 .btn.new:disabled {
@@ -624,28 +629,33 @@ body {
 }
 
 .btn {
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--border);
   border-radius: 9px;
   padding: 8px 16px;
+  background: var(--panel-2);
+  color: var(--text);
   font: inherit;
   font-weight: 600;
   cursor: pointer;
-  color: #fff;
+}
+
+.btn.icon {
+  padding: 8px;
 }
 
 .btn.send {
   background: var(--accent);
+  border-color: transparent;
+  color: #fff;
 }
 
 .btn.send:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.btn.stop {
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--border);
 }
 
 /* ---- Task detail ---- */
@@ -685,11 +695,9 @@ body {
   font-size: 12px;
 }
 
-.btn.danger {
+.btn.danger,
+.task-actions .btn {
   flex: none;
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--border);
   padding: 6px 14px;
   font-size: 13px;
 }
@@ -831,8 +839,16 @@ body {
   cursor: not-allowed;
 }
 
-.run-toggle {
+.run-actions {
   margin-left: auto;
+  display: flex;
+  gap: 14px;
+}
+
+.run-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: none;
   background: none;
   color: var(--accent);
@@ -1153,11 +1169,24 @@ body {
    becomes an off-canvas drawer and the thread gets the whole screen.
    --------------------------------------------------------------------------- */
 @media (max-width: 720px) {
+  /* The page itself scrolls here, not `.messages`: Safari only tucks its
+     address bar away when the document is what moves. */
+  html,
+  body,
+  #root {
+    height: auto;
+  }
+
   .layout {
     flex-direction: column;
+    height: auto;
+    min-height: 100dvh;
   }
 
   .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -1170,6 +1199,9 @@ body {
   }
 
   .nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     /* 44px is the smallest reliable touch target. */
     min-width: 44px;
     min-height: 44px;
@@ -1198,6 +1230,13 @@ body {
     transition: transform 0.22s ease;
     border-right: 1px solid var(--border);
     padding-top: env(safe-area-inset-top);
+    /* Scrolling the list to its end shouldn't start moving the page behind. */
+    overscroll-behavior: contain;
+  }
+
+  /* No hover on touch, so the delete control can't wait for one. */
+  .row-delete {
+    opacity: 1;
   }
 
   .sidebar.open {
@@ -1214,8 +1253,12 @@ body {
   }
 
   .app {
-    /* No longer centred in a wide column — it is the whole screen. */
+    /* No longer centred in a wide column — it is the whole screen. The auto
+       margin has to go too: in a column it stops the stretch, so one long
+       unbroken line would widen the page past the viewport. */
     max-width: none;
+    margin: 0;
+    height: auto;
     padding: 10px 12px;
     padding-bottom: max(10px, env(safe-area-inset-bottom));
     gap: 10px;
@@ -1232,8 +1275,16 @@ body {
   }
 
   .messages {
+    overflow-y: visible;
     padding: 4px 0;
     gap: 12px;
+  }
+
+  .composer {
+    position: sticky;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    /* Masks the thread where it would show through the gap under the composer. */
+    box-shadow: 0 12px 0 12px var(--bg);
   }
 
   .composer textarea {
@@ -1242,6 +1293,7 @@ body {
   }
 
   .composer button {
+    min-width: 44px;
     min-height: 44px;
   }
 

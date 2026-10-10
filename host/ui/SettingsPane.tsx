@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, RotateCcw } from "lucide-react";
 import { getSettings, resetSettings, updateSettings, type Settings } from "./api";
 import { useArmedAction } from "./useArmedAction";
 
@@ -171,9 +172,11 @@ export function SettingsPane() {
 
       <div className="settings-actions">
         <button className="btn send" onClick={() => void save()} disabled={!dirty || saving}>
+          <Check size={16} />
           {saving ? "Saving…" : dirty ? "Save changes" : "Saved"}
         </button>
         <button className={`btn danger ${armed ? "confirming" : ""}`} onClick={trigger} disabled={saving}>
+          <RotateCcw size={16} />
           {armed ? "Confirm reset" : "Reset to defaults"}
         </button>
         {savedAt && <span className="settings-saved">Saved</span>}

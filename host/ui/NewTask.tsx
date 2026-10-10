@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Plus, X } from "lucide-react";
 import { createTask, getSettings, type Task } from "./api";
 
 /**
@@ -146,9 +147,11 @@ export function NewTask({
 
         <div className="task-edit-actions">
           <button className="btn new" type="submit" disabled={!ready || saving}>
+            <Plus size={16} />
             {saving ? "Creating…" : "Create task"}
           </button>
           <button className="btn" type="button" onClick={onCancel} disabled={saving}>
+            <X size={16} />
             Cancel
           </button>
         </div>

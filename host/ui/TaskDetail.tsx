@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
+import { Check, FileText, Pencil, Play, Trash2, X } from "lucide-react";
 import { Transcript } from "./Transcript";
 import type { TaskRun, TaskUpdate, TaskWithRuns } from "./api";
 import { useArmedAction } from "./useArmedAction";
@@ -45,21 +46,25 @@ function Run({
         <span className={`pill ${run.status}`}>{run.status.replace("_", " ")}</span>
         <span className="run-when">{formatStamp(run.startedAt)}</span>
         {duration && <span className="run-duration">{duration}</span>}
-        {run.transcript && (
-          <button className="run-toggle" onClick={() => setOpen((v) => !v)}>
-            {open ? "Hide transcript" : "Transcript"}
-          </button>
-        )}
-        {!running && (
-          <button
-            className={`run-toggle danger ${confirming ? "confirming" : ""}`}
-            onClick={arm}
-            disabled={deleting}
-            title="Delete this run and its transcript"
-          >
-            {deleting ? "Deleting…" : confirming ? "Confirm" : "Delete"}
-          </button>
-        )}
+        <div className="run-actions">
+          {run.transcript && (
+            <button className="run-toggle" onClick={() => setOpen((v) => !v)}>
+              <FileText size={14} />
+              {open ? "Hide transcript" : "Transcript"}
+            </button>
+          )}
+          {!running && (
+            <button
+              className={`run-toggle danger ${confirming ? "confirming" : ""}`}
+              onClick={arm}
+              disabled={deleting}
+              title="Delete this run and its transcript"
+            >
+              <Trash2 size={14} />
+              {deleting ? "Deleting…" : confirming ? "Confirm" : "Delete"}
+            </button>
+          )}
+        </div>
       </div>
       {open && run.transcript && <Transcript raw={run.transcript} />}
     </li>
@@ -218,11 +223,13 @@ export function TaskDetail({
                   : "Queue a run now, outside the schedule"
               }
             >
+              <Play size={16} />
               {running ? "Queueing…" : "Run now"}
             </button>
           )}
           {!editing && (
             <button className="btn" onClick={() => setEditing(true)} disabled={deleting}>
+              <Pencil size={16} />
               Edit
             </button>
           )}
@@ -231,6 +238,7 @@ export function TaskDetail({
             onClick={arm}
             disabled={deleting}
           >
+            <Trash2 size={16} />
             {deleting ? "Deleting…" : confirming ? "Confirm delete" : "Delete"}
           </button>
         </div>
@@ -306,9 +314,11 @@ export function TaskDetail({
 
           <div className="task-edit-actions">
             <button className="btn new" type="submit" disabled={!dirty || !limitValid || saving}>
+              <Check size={16} />
               {saving ? "Saving…" : "Save changes"}
             </button>
             <button className="btn" type="button" onClick={cancel} disabled={saving}>
+              <X size={16} />
               Cancel
             </button>
             {/* The cron only takes effect once the save reaches Redis. */}

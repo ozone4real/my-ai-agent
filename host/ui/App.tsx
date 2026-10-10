@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
+import { ArrowUp, Menu, Plus, RefreshCw, Square, Trash2 } from "lucide-react";
 import Markdown from "./Markdown";
 import {
   deleteConversation,
@@ -193,7 +194,7 @@ function ConversationRow({
         disabled={disabled || deleting}
         onClick={trigger}
       >
-        ✕
+        <Trash2 size={14} />
       </button>
     </div>
   );
@@ -296,6 +297,8 @@ export function App() {
   // Picking anything in the drawer navigates, so close it on every route change
   // rather than wiring a handler onto each row.
   useEffect(() => setNavOpen(false), [pathname]);
+  // On narrow screens the document scrolls, so a new page must start at its top.
+  useEffect(() => window.scrollTo(0, 0), [pathname]);
   const [busy, setBusy] = useState(false);
   const [loadingThread, setLoadingThread] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
@@ -303,7 +306,11 @@ export function App() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight });
+    // On narrow screens the document scrolls instead of the pane.
+    window.scrollTo({ top: document.documentElement.scrollHeight });
   }, [messages]);
 
   const refreshConversations = useCallback(async () => {
@@ -776,7 +783,7 @@ export function App() {
           aria-expanded={navOpen}
           onClick={() => setNavOpen(true)}
         >
-          ☰
+          <Menu size={20} />
         </button>
         <span className="topbar-title">
           {pane === "chats" ? "Conversations" : pane === "tasks" ? "Scheduled" : "Preferences"}
@@ -828,14 +835,21 @@ export function App() {
               disabled={busy}
               title={busy ? "Wait for the current turn to finish" : "New chat"}
             >
+              <Plus size={14} />
               New
             </button>
           ) : (
             <div className="sidebar-head-actions">
-              <button className="btn" onClick={() => void refreshTasks()}>
-                Refresh
+              <button
+                className="btn icon"
+                onClick={() => void refreshTasks()}
+                title="Refresh"
+                aria-label="Refresh"
+              >
+                <RefreshCw size={14} />
               </button>
               <button className="btn new" onClick={() => navigate("/tasks/new")}>
+                <Plus size={14} />
                 New
               </button>
             </div>
@@ -1067,16 +1081,18 @@ export function App() {
                 </select>
               )}
               {busy ? (
-                <button className="btn stop" onClick={stop}>
-                  Stop
+                <button className="btn icon stop" onClick={stop} title="Stop" aria-label="Stop">
+                  <Square size={16} />
                 </button>
               ) : (
                 <button
-                  className="btn send"
+                  className="btn icon send"
                   onClick={() => void submit()}
                   disabled={!input.trim()}
+                  title="Send"
+                  aria-label="Send"
                 >
-                  Send
+                  <ArrowUp size={18} />
                 </button>
               )}
             </div>

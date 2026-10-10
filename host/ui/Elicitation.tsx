@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Check } from "lucide-react";
 import type { ElicitationAnswer, ElicitationRequest } from "./api";
 
 /**
@@ -45,6 +46,7 @@ export function Elicitation({
             disabled={answering}
             onClick={() => onAnswer({ action: "accept", content: {} })}
           >
+            <Check size={16} />
             {answering ? "Sending…" : "Done"}
           </button>
           <button className="btn" disabled={answering} onClick={() => onAnswer({ action: "decline" })}>
@@ -103,6 +105,7 @@ export function Elicitation({
 
       <div className="elicitation-actions">
         <button className="btn new" type="submit" disabled={answering || missing.length > 0}>
+          <Check size={16} />
           {answering ? "Sending…" : "Send answer"}
         </button>
         <button
