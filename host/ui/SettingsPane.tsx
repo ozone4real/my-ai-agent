@@ -3,7 +3,7 @@ import { Check, RotateCcw } from "lucide-react";
 import { getSettings, resetSettings, updateSettings, type Settings } from "./api";
 import { useArmedAction } from "./useArmedAction";
 
-/** A model id rendered for humans: "claude-sonnet-4-8" -> "Claude Sonnet 4 8". */
+/** A model id rendered for humans: "claude-sonnet-5-5" -> "Claude Sonnet 5 5". */
 /** OpenRouter marks its no-cost variants with this suffix on the model id. */
 const isFreeModel = (id: string) => id.endsWith(":free");
 

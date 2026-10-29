@@ -32,12 +32,9 @@ class CachingChatAnthropic extends ChatAnthropic {
   /**
    * Adaptive thinking, with the summary returned.
    *
-   * Two defaults are wrong for us if left alone. Whether thinking runs at all
-   * depends on the model — `claude-opus-4-8` does none unless asked, while
-   * `claude-opus-5` and `claude-sonnet-5` think by default — so without this
-   * the dropdown silently changes behaviour. And `display` defaults to
-   * "omitted" on all three, which returns a thinking block whose text is empty:
-   * billed for the reasoning, with nothing for the UI to show.
+   * Every Claude model here thinks by default, but `display` defaults to
+   * "omitted", which returns a thinking block whose text is empty: billed for
+   * the reasoning, with nothing for the UI to show.
    *
    * Set before `...fields` so an explicit `thinking` still wins.
    */
@@ -107,13 +104,26 @@ class ResilientChatOpenRouter extends ChatOpenRouter {
 // Anthropic models get the caching subclass. OpenRouter passes the prompt on to
 // whichever provider serves the model, and each one applies its own caching.
 export const MODELS = {
+  [ModelType.DEEPSEEK_FLASH]: ChatDeepSeek,
   [ModelType.DEEPSEEK_V4_FLASH]: ChatDeepSeek,
   [ModelType.DEEPSEEK_V4_PRO]: ChatDeepSeek,
-  [ModelType.OPUS_4_8]: CachingChatAnthropic,
+  [ModelType.FABLE_5_1]: CachingChatAnthropic,
+  [ModelType.OPUS_5_5]: CachingChatAnthropic,
+  [ModelType.SONNET_5_5]: CachingChatAnthropic,
   [ModelType.SONNET_5_0]: CachingChatAnthropic,
   [ModelType.OPUS_5_0]: CachingChatAnthropic,
+  [ModelType.OPENROUTER_GEMINI_3_8_FLASH]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_GEMINI_3_7_FLASH]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_GPT_6_1_SOL]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_GPT_6_1_SOL_PRO]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_GPT_6_1_TERRA]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_GPT_6_1_TERRA_PRO]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_GPT_6_LUNA]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_GPT_6_LUNA_PRO]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_GPT_6_ASTRA]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_GPT_6_ASTRA_PRO]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_GPT_5]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_GROK_4_7]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_GROK_4_6]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_LLAMA_4_SCOUT]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_LLAMA_3_3_70B]: ResilientChatOpenRouter,
@@ -121,7 +131,7 @@ export const MODELS = {
   [ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_FREE_GEMMA_4_31B]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_FREE_NEMOTRON_3_SUPER]: ResilientChatOpenRouter,
+  [ModelType.OPENROUTER_FREE_NEMOTRON_3_5_SUPER_VL]: ResilientChatOpenRouter,
   [ModelType.OPENROUTER_GLM_5_3_FLASH]: ResilientChatOpenRouter
 
 }
@@ -134,14 +144,27 @@ export const MODELS = {
  * every Claude model is rejected as invalid.
  */
 export const MODEL_API_KEY_ENV: Record<ModelType, string> = {
+  [ModelType.DEEPSEEK_FLASH]: "DEEP_SEEK_API_KEY",
   [ModelType.DEEPSEEK_V4_FLASH]: "DEEP_SEEK_API_KEY",
   [ModelType.DEEPSEEK_V4_PRO]: "DEEP_SEEK_API_KEY",
-  [ModelType.OPUS_4_8]: "ANTHROPIC_API_KEY",
+  [ModelType.FABLE_5_1]: "ANTHROPIC_API_KEY",
+  [ModelType.OPUS_5_5]: "ANTHROPIC_API_KEY",
+  [ModelType.SONNET_5_5]: "ANTHROPIC_API_KEY",
   [ModelType.SONNET_5_0]: "ANTHROPIC_API_KEY",
   [ModelType.OPUS_5_0]: "ANTHROPIC_API_KEY",
   // One key for every model behind the gateway, whoever ends up serving it.
+  [ModelType.OPENROUTER_GEMINI_3_8_FLASH]: "OPENROUTER_API_KEY",
   [ModelType.OPENROUTER_GEMINI_3_7_FLASH]: "OPENROUTER_API_KEY",
+  [ModelType.OPENROUTER_GPT_6_1_SOL]: "OPENROUTER_API_KEY",
+  [ModelType.OPENROUTER_GPT_6_1_SOL_PRO]: "OPENROUTER_API_KEY",
+  [ModelType.OPENROUTER_GPT_6_1_TERRA]: "OPENROUTER_API_KEY",
+  [ModelType.OPENROUTER_GPT_6_1_TERRA_PRO]: "OPENROUTER_API_KEY",
+  [ModelType.OPENROUTER_GPT_6_LUNA]: "OPENROUTER_API_KEY",
+  [ModelType.OPENROUTER_GPT_6_LUNA_PRO]: "OPENROUTER_API_KEY",
+  [ModelType.OPENROUTER_GPT_6_ASTRA]: "OPENROUTER_API_KEY",
+  [ModelType.OPENROUTER_GPT_6_ASTRA_PRO]: "OPENROUTER_API_KEY",
   [ModelType.OPENROUTER_GPT_5]: "OPENROUTER_API_KEY",
+  [ModelType.OPENROUTER_GROK_4_7]: "OPENROUTER_API_KEY",
   [ModelType.OPENROUTER_GROK_4_6]: "OPENROUTER_API_KEY",
   [ModelType.OPENROUTER_LLAMA_4_SCOUT]: "OPENROUTER_API_KEY",
   [ModelType.OPENROUTER_LLAMA_3_3_70B]: "OPENROUTER_API_KEY",
@@ -151,6 +174,6 @@ export const MODEL_API_KEY_ENV: Record<ModelType, string> = {
   [ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA]: "OPENROUTER_API_KEY",
   [ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING]: "OPENROUTER_API_KEY",
   [ModelType.OPENROUTER_FREE_GEMMA_4_31B]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_FREE_NEMOTRON_3_SUPER]: "OPENROUTER_API_KEY",
+  [ModelType.OPENROUTER_FREE_NEMOTRON_3_5_SUPER_VL]: "OPENROUTER_API_KEY",
   [ModelType.OPENROUTER_GLM_5_3_FLASH]: "OPENROUTER_API_KEY",
 }

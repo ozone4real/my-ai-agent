@@ -18,14 +18,27 @@
  * `https://openrouter.ai/api/v1/models` works.
  */
 export enum ModelType {
-  OPUS_4_8 = "claude-opus-4-8",
+  FABLE_5_1 = "claude-fable-5-1",
+  OPUS_5_5 = "claude-opus-5-5",
+  SONNET_5_5 = "claude-sonnet-5-5",
   SONNET_5_0 = "claude-sonnet-5",
   OPUS_5_0 = "claude-opus-5",
+  DEEPSEEK_FLASH = "deepseek-flash",
   DEEPSEEK_V4_FLASH = "deepseek-v4-flash",
   DEEPSEEK_V4_PRO = "deepseek-v4-pro",
   // Via OpenRouter — providers this app has no direct integration for.
+  OPENROUTER_GEMINI_3_8_FLASH = "google/gemini-3.8-flash",
   OPENROUTER_GEMINI_3_7_FLASH = "google/gemini-3.7-flash",
+  OPENROUTER_GPT_6_1_SOL = "openai/gpt-6.1-sol",
+  OPENROUTER_GPT_6_1_SOL_PRO = "openai/gpt-6.1-sol-pro",
+  OPENROUTER_GPT_6_1_TERRA = "openai/gpt-6.1-terra",
+  OPENROUTER_GPT_6_1_TERRA_PRO = "openai/gpt-6.1-terra-pro",
+  OPENROUTER_GPT_6_LUNA = "openai/gpt-6-luna",
+  OPENROUTER_GPT_6_LUNA_PRO = "openai/gpt-6-luna-pro",
+  OPENROUTER_GPT_6_ASTRA = "openai/gpt-6-astra",
+  OPENROUTER_GPT_6_ASTRA_PRO = "openai/gpt-6-astra-pro",
   OPENROUTER_GPT_5 = "openai/gpt-5",
+  OPENROUTER_GROK_4_7 = "x-ai/grok-4.7",
   OPENROUTER_GROK_4_6 = "x-ai/grok-4.6",
   // Paid, despite sitting close to the free tier in price: $0.075/M in,
   // $0.25/M out, with a 1M context and tool calling. It has no `:free`
@@ -47,7 +60,7 @@ export enum ModelType {
   // — the id *is* the free tier. 200k context, and it filters for tool
   // calling, which the ~15 tools bound here need.
   OPENROUTER_FREE_ROUTER = "openrouter/free",
-  OPENROUTER_FREE_NEMOTRON_3_SUPER = "nvidia/nemotron-3-super-120b-a12b:free",
+  OPENROUTER_FREE_NEMOTRON_3_5_SUPER_VL = "nvidia/nemotron-3.5-super-vl:free",
   OPENROUTER_FREE_NEMOTRON_ULTRA = "nvidia/nemotron-3-ultra-550b-a55b:free",
   OPENROUTER_FREE_NEMOTRON_LIGHTNING = "nvidia/nemotron-3.5-lightning:free",
   OPENROUTER_FREE_GEMMA_4_31B = "google/gemma-4-31b-it:free",
@@ -70,6 +83,6 @@ export const FREE_MODELS: ReadonlySet<ModelType> = new Set([
   ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA,
   ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING,
   ModelType.OPENROUTER_FREE_GEMMA_4_31B,
-  ModelType.OPENROUTER_FREE_NEMOTRON_3_SUPER,
+  ModelType.OPENROUTER_FREE_NEMOTRON_3_5_SUPER_VL,
   ModelType.OPENROUTER_FREE_ROUTER,
 ])
