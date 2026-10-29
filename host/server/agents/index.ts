@@ -328,8 +328,36 @@ export class Agent {
     await Agent.warmup()
     this.applyToolFilter()
     if (this.initialized) return
+    await Agent.refreshAppTools()
     await this.agent.initialize()
     this.initialized = true
+  }
+
+  /**
+   * Re-read our own server's tools, output schemas included.
+   *
+   * The client keeps the tool list from when it connected, and validates every
+   * result against it. A deploy replaces app-mcp under the long-lived web and
+   * worker processes, so a field added to a tool's output then fails with
+   * "does not match the tool's output schema" until they restart — and new or
+   * removed tools aren't seen either.
+   *
+   * Best-effort: if the server can't be reached the run keeps the list it has.
+   */
+  private static async refreshAppTools(): Promise<void> {
+    const session = Agent.sharedClient.getSession("app")
+    if (!session) return
+    try {
+      // "refresh" re-fetches and replaces the cached list the results are checked
+      // against. mcp-use passes the option through but types it more narrowly.
+      const refresh = { cacheMode: "refresh" } as Parameters<typeof session.listTools>[0]
+      const tools = await session.listTools(refresh)
+      // What agents are built from. mcp-use only updates it on a list_changed
+      // notification, which a replaced server never sends.
+      ;(session.connector as unknown as { toolsCache: unknown[] }).toolsCache = tools
+    } catch (err) {
+      console.warn(`app: could not refresh tools: ${err instanceof Error ? err.message : String(err)}`)
+    }
   }
 
   /** Disconnect every MCP server. Process shutdown only — this is shared state. */

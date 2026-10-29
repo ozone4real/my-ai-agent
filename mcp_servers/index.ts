@@ -140,7 +140,7 @@ export const getTask = server.tool(
     }),
   },
   async ({ id }) => {
-    await connectDB();
+    await connectDB(); 
 
     if (!Types.ObjectId.isValid(id)) {
       return { isError: true, content: [{ type: "text", text: `Not a valid task id: ${id}` }] };
