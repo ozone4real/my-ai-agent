@@ -340,6 +340,12 @@ body {
   letter-spacing: 0.05em;
 }
 
+.message-time {
+  text-transform: none;
+  letter-spacing: normal;
+  opacity: 0.8;
+}
+
 /* Quiet until the message is hovered, like the sidebar's row delete. */
 .message-delete {
   display: inline-flex;

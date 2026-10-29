@@ -36,6 +36,7 @@ interface Message {
   /** Its id in the database. Unset until stored, and for a reply that never landed. */
   serverId?: string;
   role: "user" | "assistant";
+  createdAt: string;
   /** The effective reply — only ever set from the `done` payload. */
   content: string;
   /** The live one-line status while the turn is in flight; cleared when done. */
@@ -144,6 +145,16 @@ function formatWhen(iso: string): string {
   return sameDay
     ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
     : date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+/** "14:02" today, "12 Mar, 14:02" otherwise — a message needs its time either way. */
+function formatMessageTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  if (date.toDateString() === new Date().toDateString()) return time;
+  const day = date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return `${day}, ${time}`;
 }
 
 /** Deletes a message and everything after it, behind a two-step confirm. */
@@ -653,6 +664,7 @@ export function App() {
             id: m.id,
             serverId: m.id,
             role: m.author,
+            createdAt: m.createdAt,
             content: m.content,
             steps: 0,
             reasoning: "",
@@ -693,9 +705,11 @@ export function App() {
     const prompt = input.trim();
     if (!prompt || busy) return;
 
+    const sentAt = new Date().toISOString();
     const userMsg: Message = {
       id: newId(),
       role: "user",
+      createdAt: sentAt,
       content: prompt,
       steps: 0,
       reasoning: "",
@@ -705,6 +719,7 @@ export function App() {
     const assistantMsg: Message = {
       id: assistantId,
       role: "assistant",
+      createdAt: sentAt,
       content: "",
       status: "Thinking",
       steps: 0,
@@ -1046,6 +1061,13 @@ export function App() {
                 <div key={m.id} className={`message ${m.role}`}>
                   <div className="role">
                     {m.role === "user" ? "You" : "Agent"}
+                    <time
+                      className="message-time"
+                      dateTime={m.createdAt}
+                      title={new Date(m.createdAt).toLocaleString()}
+                    >
+                      {formatMessageTime(m.createdAt)}
+                    </time>
                     {m.serverId && (
                       <MessageDelete
                         messageId={m.id}
