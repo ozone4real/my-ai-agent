@@ -1,0 +1,265 @@
+# Name of your application. Used to uniquely configure containers.
+service: my-ai-agent
+
+# Loads secrets from Google Secret Manager into ENV. Remove if you keep them elsewhere.
+<% require "dotenv"; Dotenv::Parser.call(`gcloud secrets versions access latest --secret=your-secret --project=your-gcp-project --quiet`).each {|k,v| ENV[k] = v} %>
+
+# Name of the container image.
+image: your-dockerhub-user/my-ai-agent
+
+# Deploy to these servers.
+servers:
+  web:
+    - 203.0.113.10
+  # This project's own MCP server (tasks + run history). Its own service so the
+  # express container doesn't also start an in-process copy.
+  app-mcp:
+    hosts:
+      - 203.0.113.10
+    cmd: node dist/app-mcp.js
+    options:
+      # Role containers are named <service>-<role>-<version>, so the name changes
+      # every deploy and APP_MCP_URL below could never resolve. A fixed alias on
+      # the kamal network gives it the stable DNS name compose got for free.
+      network-alias: app-mcp
+    env:
+      clear:
+        APP_MCP_PORT: "8000"
+        # mcp-use binds 127.0.0.1 unless told otherwise, which makes it
+        # unreachable from sibling containers even though the port is "open".
+        HOST: 0.0.0.0
+        MCP_ALLOWED_HOSTS: app-mcp
+    # options:
+    #   # 204 on the MCP endpoint means it is mounted and serving.
+    #   health-cmd: "node -e fetch('http://localhost:8000/mcp').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
+    #   health-interval: 5s
+    #   health-timeout: 5s
+    #   health-retries: 20
+  worker:
+    hosts:
+      - 203.0.113.10
+    cmd: node dist/worker.js
+
+# Enable SSL auto certification via Let's Encrypt and allow for multiple apps on a single web server.
+# Remove this section when using multiple web servers and ensure you terminate SSL at your load balancer.
+#
+# Note: If using Cloudflare, set encryption mode in SSL/TLS setting to "Full" to enable CF-to-app encryption.
+proxy:
+  ssl: true
+  host: chat.example.com
+  # Proxy connects to your container on port 80 by default.
+  app_port: 8080
+  healthcheck:
+    # Pinned because the default is /up, which nothing serves — the SPA
+    # catch-all answered it with index.html. Now that Basic auth sits in front
+    # of that catch-all, /up would 401 and every deploy would roll back.
+    # /health is exempt from auth in middleware/basic_auth.ts.
+    path: /health
+
+# Credentials for your image host.
+registry:
+  # Specify the registry server, if you're not using Docker Hub
+  # server: registry.digitalocean.com / ghcr.io / ...
+  username: your-dockerhub-user
+
+  # Always use an access token rather than real password (pulled from .kamal/secrets).
+  password:
+    - KAMAL_REGISTRY_PASSWORD
+
+# Configure builder setup.
+builder:
+  arch: amd64
+  remote: ssh://root@198.51.100.20
+  # Pass in additional build args needed for your Dockerfile.
+  # args:
+  #   RUBY_VERSION: <%= ENV["RBENV_VERSION"] || ENV["rvm_ruby_string"] || "#{RUBY_ENGINE}-#{RUBY_ENGINE_VERSION}" %>
+
+# Inject ENV variables into containers (secrets come from .kamal/secrets).
+#
+env:
+  clear:
+    NODE_ENV: production
+    # Cron schedules fire in container time. Without this a "0 9 * * 1" task
+    # would run at 09:00 UTC rather than 09:00 local.
+    # ERB, not ${}: kamal renders this file with ERB only, so shell-style
+    # defaults survive as literal strings and land in the container verbatim.
+    TZ: <%= ENV.fetch("TZ", "Europe/London") %>
+    REDIS_HOST: redis
+    APP_MCP_URL: http://app-mcp:8000/mcp
+    SEARXNG_URL: http://searxng:8080
+    # Resolved to an IP by docker/entrypoint.sh — Chrome's DevTools endpoint
+    # rejects a Host header that isn't an IP or localhost.
+    CHROME_HOST: chrome
+    CHROME_PORT: "9223"
+    AGENT_FILESYSTEM_ROOT: /workspace
+    # Shell commands default to the sandbox too. Without this they run in /app,
+    # so a generated file lands outside the filesystem tool's reach and outside
+    # the only directory Chrome shares — which breaks browser uploads.
+    AGENT_CWD: /workspace
+    START_APP_MCP: "false"
+    # HTTP Basic auth on the web server. The server refuses to boot in
+    # production without both of these.
+    LOGIN_USER: <%= ENV.fetch("LOGIN_USER", "admin") %>
+  secret:
+    - MONGODB_URI
+    - REDIS_PASSWORD
+    - ANTHROPIC_API_KEY
+    - BREVO_MCP_TOKEN
+    - DEEP_SEEK_API_KEY
+    - OPENROUTER_API_KEY
+    - LOGIN_PASSWORD
+
+# Aliases are triggered with "bin/kamal <alias>". You can overwrite arguments on invocation:
+# "bin/kamal app logs -r job" will tail logs from the first server in the job section.
+#
+# aliases:
+#   shell: app exec --interactive --reuse "bash"
+
+# Use a different ssh user than root
+#
+# ssh:
+#   user: app
+
+# The agent's sandbox (AGENT_FILESYSTEM_ROOT). A named volume rather than
+# nothing, so web, worker and app-mcp see the same files and a deploy doesn't
+# discard whatever a task wrote.
+volumes:
+  - "agent_workspace:/workspace"
+
+# Bridge fingerprinted assets, like JS and CSS, between versions to avoid
+# hitting 404 on in-flight requests. Combines all files from new and old
+# version inside the asset_path.
+#
+# asset_path: /app/public/assets
+
+# Configure rolling deploys by setting a wait time between batches of restarts.
+#
+# boot:
+#   limit: 10 # Can also specify as a percentage of total hosts, such as "25%"
+#   wait: 2
+
+# Use accessory services (secrets come from .kamal/secrets).
+#
+accessories:
+#   db:
+#     image: mysql:8.0
+#     host: 192.168.0.2
+#     port: 3306
+#     env:
+#       clear:
+#         MYSQL_ROOT_HOST: '%'
+#       secret:
+#         - MYSQL_ROOT_PASSWORD
+#     files:
+#       - config/mysql/production.cnf:/etc/mysql/my.cnf
+#       - db/production.sql:/docker-entrypoint-initdb.d/setup.sql
+#     directories:
+#       - data:/var/lib/mysql
+  # `service:` on every accessory below pins the container name. Without it kamal
+  # names them <service>-<accessory> (my-ai-agent-redis), which is also their DNS
+  # name on the kamal network — so REDIS_HOST: redis and friends would not
+  # resolve. Pinning keeps the names identical to docker-compose.
+  redis:
+    service: redis
+    image: redis:8.2
+    host: 203.0.113.10
+    # Not published: only sibling containers need it, and the host is public.
+    cmd: redis-server --requirepass <%= ENV["REDIS_PASSWORD"] %>
+    directories:
+      - data:/data
+
+  searxng:
+    service: searxng
+    image: searxng/searxng:latest
+    host: 203.0.113.10
+    files:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    env:
+      clear:
+        # Reached container-to-container, so it is the internal name — the host
+        # publishes no searxng port.
+        SEARXNG_BASE_URL: http://searxng:8080/
+      secret:
+        - SEARXNG_SECRET
+    options:
+      health-cmd: "wget -qO /dev/null http://localhost:8080/healthz"
+      health-interval: 10s
+      health-timeout: 5s
+      health-retries: 10
+
+  # Headful Chromium on a virtual display (docker/chrome). Headful rather than
+  # `--headless=new`: a real browser has real WebGL strings, fonts and screen
+  # metrics, which a spoofed User-Agent cannot supply.
+  chrome:
+    service: chrome
+    host: 203.0.113.10
+    # Must be an amd64 image. `builder.arch` above governs the app image only —
+    # kamal never builds accessories, so a chrome image built on an arm64 Mac
+    # fails on this host with "exec format error".
+    image: your-dockerhub-user/my-mcp-server-chrome:latest
+    # 127.0.0.1 only — never expose an unauthenticated VNC on a public host.
+    port: "127.0.0.1:<%= ENV.fetch("CHROME_VNC_PORT", "5900") %>:5900"
+    env:
+      clear:
+        SCREEN: <%= ENV.fetch("CHROME_SCREEN", "1920x1080x24") %>
+        # Lets you watch the browser on a machine with no screen. Unauthenticated,
+        # so it is only reachable via the localhost publish below.
+        ENABLE_VNC: "<%= ENV.fetch("CHROME_ENABLE_VNC", "false") %>"
+        # Unset by default: headful Chromium reports a real UA, and an override
+        # that disagrees with the UA-CH client hints is worse than none.
+        CHROME_USER_AGENT: "<%= ENV.fetch("CHROME_USER_AGENT", "") %>"
+        http_proxy: http://warp:8080
+        https_proxy: http://warp:8080
+        no_proxy: "localhost,127.0.0.1,172.16.0.0/12"
+    # There is no GPU, so WebGL has to come from SwiftShader — and Chrome 128+
+    # refuses to use it for WebGL without this flag. Without it
+    # getContext("webgl") returns null, which no real desktop browser does.
+    cmd: "--no-sandbox --disable-blink-features=AutomationControlled --enable-unsafe-swiftshader --use-gl=angle --use-angle=swiftshader"
+    volumes:
+      # Cookies and site data survive a restart, so a session established once
+      # isn't thrown away on every deploy.
+      - chrome-profile:/profile
+      # The agent's sandbox, at the same path the app sees it. `upload_file`
+      # hands Chrome a path over CDP and Chrome opens it itself, so a file the
+      # agent writes is unreachable unless the browser can see it too.
+      # Read-only: uploading only needs reads.
+      - agent_workspace:/workspace:ro
+    options:
+      health-cmd: "curl -fsS http://localhost:9222/json/version"
+      health-interval: 10s
+      health-timeout: 5s
+      health-retries: 12
+      health-start-period: 20s
+
+  # Chrome only listens for DevTools on 127.0.0.1 outside old headless, so
+  # publish it with a forwarder in Chrome's own network namespace: bind
+  # 0.0.0.0:9223 there and hand it to 127.0.0.1:9222.
+  #
+  # Sharing the namespace also keeps the Host header valid — callers reach it at
+  # Chrome's IP, and Chrome accepts an IP Host where it would reject a name.
+  chrome-proxy:
+    service: chrome-proxy
+    host: 203.0.113.10
+    image: alpine/socat:latest
+    cmd: "TCP-LISTEN:9223,fork,reuseaddr TCP:127.0.0.1:9222"
+    # docker's own syntax, not compose's `service:chrome`. Without this socat
+    # forwards to 127.0.0.1 in its own namespace, where nothing is listening —
+    # Chrome binds DevTools to loopback inside the chrome container.
+    #
+    # Boot chrome first; this fails if that container isn't already running.
+    network: "container:chrome"
+    env:
+      clear:
+        http_proxy: http://warp:8080
+        https_proxy: http://warp:8080
+        no_proxy: "localhost,127.0.0.1,172.16.0.0/12"
+
+  warp:
+    service: warp
+    image: ghcr.io/kingcc/warproxy:latest
+    host: 203.0.113.10
+    env:
+      clear:
+        http_proxy: http://warp:8080
+        https_proxy: http://warp:8080
+        no_proxy: "localhost,127.0.0.1,172.16.0.0/12"

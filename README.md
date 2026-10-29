@@ -95,11 +95,13 @@ Two things worth knowing:
 
 ## Deploying to a remote server
 
-[`config/deploy.yml`](config/deploy.yml) deploys the whole stack with
-[Kamal](https://kamal-deploy.org) — the app image plus Redis, SearXNG and Chrome
-as accessories, with Let's Encrypt in front:
+Deploy however you like. One option is included: a sample
+[Kamal](https://kamal-deploy.org) config that deploys the app image plus Redis,
+SearXNG and Chrome as accessories, with Let's Encrypt in front. To use it, copy
+it and fill in your server IPs, domain, image names and registry user:
 
 ```bash
+cp config/deploy.sample.yml config/deploy.yml
 kamal setup     # first time
 kamal deploy    # thereafter
 ```
