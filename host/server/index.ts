@@ -14,6 +14,8 @@ import { connectDB } from "./db";
 import { basicAuth } from "./middleware/basic_auth.js";
 import { reconcileTaskSchedulers } from "./jobs/reconcile_schedulers.js";
 import { backfillLastMessageAt } from "./jobs/backfill_last_message_at.js";
+import { migrateModelIds } from "./jobs/migrate_model_ids.js";
+import { watchLatestModels } from "./agents/latest_models.js";
 import router from "./routes"
 import { closeBullBoardQueues } from "./routes/admin/bull_board.js"
 
@@ -47,9 +49,19 @@ app.use(basicAuth);
 // /conversations/:id) with JSON before the SPA catch-all sees them.
 app.use("/api", router)
 
+void watchLatestModels()
+
 connectDB()
   .then(async () => {
     console.log("MongoDB connected");
+    try {
+      const migrated = await migrateModelIds();
+      if (migrated) console.log(`Migrated ${migrated} stored model ids to their family`);
+    } catch (err) {
+      console.warn(
+        `Could not migrate stored model ids: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
     try {
       const stamped = await backfillLastMessageAt();
       if (stamped) console.log(`Backfilled lastMessageAt on ${stamped} conversations`);

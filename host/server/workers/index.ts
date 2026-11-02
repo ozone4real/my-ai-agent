@@ -5,6 +5,8 @@
 
 import { connectDB, disconnectDB } from "../db.js";
 import { Agent } from "../agents/index.js";
+import { watchLatestModels } from "../agents/latest_models.js";
+import { migrateModelIds } from "../jobs/migrate_model_ids.js";
 import ApplicationJob from "../jobs/application_job.js";
 import CompactTranscriptsJob from "../jobs/compact_transcripts_job.js";
 import CloseStalePagesJob from "../jobs/close_stale_pages_job.js";
@@ -13,6 +15,12 @@ import DefaultWorker from "./default_worker.js";
 
 await connectDB();
 console.log("MongoDB connected");
+
+// Before any job runs, so none starts on a fallback version or a stale id.
+await watchLatestModels();
+await migrateModelIds().catch((err: unknown) =>
+  console.warn(`Could not migrate stored model ids: ${err instanceof Error ? err.message : String(err)}`)
+);
 
 // Connect the MCP servers up front so the first scheduled task doesn't pay the
 // 9-28s spawn. Best-effort: a failed warmup is retried by the run itself.

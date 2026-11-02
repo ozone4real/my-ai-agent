@@ -47,7 +47,7 @@ const settingsSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: MODEL_CHOICES,
-      default: ModelType.DEEPSEEK_V4_FLASH,
+      default: ModelType.DEEPSEEK_FLASH,
     },
   },
   { timestamps: true }

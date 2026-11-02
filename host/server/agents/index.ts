@@ -15,9 +15,9 @@ import { UsageTracker } from "./usage.js";
 
 // Defined in ./models.js so Settings can name a model without importing the
 // agent runtime. Re-exported here because this is where callers expect them.
-import { ModelType, MODELS } from "./models.js"
-import { MODEL_API_KEY_ENV } from "./models.js"
-export { ModelType, MODELS } from "./models.js"
+import { ModelType, MODEL_FAMILIES, PROVIDERS } from "./models.js"
+import { latestModelId } from "./latest_models.js"
+export { ModelType } from "./models.js"
 
 /** A prior turn: LangChain messages or the stored DeepSeek JSON. Both work. */
 export type AgentMessage = ChatMessage | LangChainMessage
@@ -183,27 +183,27 @@ export class Agent {
   }
 
   constructor({
-    model = ModelType.DEEPSEEK_V4_FLASH,
+    model = ModelType.DEEPSEEK_FLASH,
     conversationId,
     preferredName,
     userInstructions,
     streaming = true,
     usageLabel,
   }: AgentOptions = {}) {
+    const family = MODEL_FAMILIES[model]
+    if (!family) throw new Error(`Unknown model ${model}`)
+    const { Model: ProviderModel, apiKeyEnv } = PROVIDERS[family.provider]
     // The model classes declare unrelated constructor signatures, so TypeScript
     // refuses to construct the union (TS2351). The fields passed below are
     // common to all of them, which is all the cast asserts.
-    const Model = MODELS[model] as new (
+    const Model = ProviderModel as new (
       fields: ConstructorParameters<typeof ChatDeepSeek>[0]
     ) => ChatDeepSeek | ChatAnthropic | ChatOpenRouter
-
-    const apiKeyEnv = MODEL_API_KEY_ENV[model]
-    if (!apiKeyEnv) throw new Error(`No API key configured for model ${model}`)
 
     this.usage = new UsageTracker(usageLabel)
 
     const llm = new Model({
-      model,
+      model: latestModelId(model),
       maxTokens: 10000,
       apiKey: process.env[apiKeyEnv],
       streaming,

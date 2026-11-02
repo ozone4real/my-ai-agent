@@ -10,6 +10,7 @@ import type { Types } from "mongoose";
 import ApplicationJob, { JobQueueName } from "./application_job.js";
 import { STATUSES, TaskRunModel } from "../models/task_run.js";
 import { ModelType } from "../agents/models.js";
+import { latestModelId } from "../agents/latest_models.js";
 import { ChatOpenRouter } from "@langchain/openrouter";
 
 type Status = (typeof STATUSES)[number];
@@ -147,7 +148,7 @@ export default class CompactTranscriptsJob extends ApplicationJob {
   private async summarise(transcript: string): Promise<string> {
 
     const llm = new ChatOpenRouter({
-      model: ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA,
+      model: latestModelId(ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA),
       apiKey: process.env.OPENROUTER_API_KEY,
       maxTokens: 1500,
     });

@@ -4,8 +4,8 @@ import { ChatOpenRouter } from "@langchain/openrouter";
 
 // The ids themselves live in a leaf module with no imports, so Mongoose models
 // and the MCP server can validate against them without pulling in LangChain.
-import { ModelType } from "./model_types.js";
-export { ModelType, MODEL_CHOICES, FREE_MODELS } from "./model_types.js";
+import type { Provider } from "./model_types.js";
+export { ModelType, MODEL_CHOICES, MODEL_FAMILIES, FREE_MODELS } from "./model_types.js";
 
 /**
  * ChatAnthropic that asks Anthropic to cache the prompt prefix.
@@ -53,7 +53,6 @@ class CachingChatAnthropic extends ChatAnthropic {
   }
 }
 
-// DeepSeek caches automatically and has no `cache_control`, so only the
 /**
  * ChatOpenRouter that reports a choice-less response instead of crashing.
  *
@@ -103,77 +102,12 @@ class ResilientChatOpenRouter extends ChatOpenRouter {
 
 // Anthropic models get the caching subclass. OpenRouter passes the prompt on to
 // whichever provider serves the model, and each one applies its own caching.
-export const MODELS = {
-  [ModelType.DEEPSEEK_FLASH]: ChatDeepSeek,
-  [ModelType.DEEPSEEK_V4_FLASH]: ChatDeepSeek,
-  [ModelType.DEEPSEEK_V4_PRO]: ChatDeepSeek,
-  [ModelType.FABLE_5_1]: CachingChatAnthropic,
-  [ModelType.OPUS_5_5]: CachingChatAnthropic,
-  [ModelType.SONNET_5_5]: CachingChatAnthropic,
-  [ModelType.SONNET_5_0]: CachingChatAnthropic,
-  [ModelType.OPUS_5_0]: CachingChatAnthropic,
-  [ModelType.OPENROUTER_GEMINI_3_8_FLASH]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_GEMINI_3_7_FLASH]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_GPT_6_1_SOL]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_GPT_6_1_SOL_PRO]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_GPT_6_1_TERRA]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_GPT_6_1_TERRA_PRO]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_GPT_6_LUNA]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_GPT_6_LUNA_PRO]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_GPT_6_ASTRA]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_GPT_6_ASTRA_PRO]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_GPT_5]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_GROK_4_7]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_GROK_4_6]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_LLAMA_4_SCOUT]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_LLAMA_3_3_70B]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_FREE_ROUTER]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_FREE_GEMMA_4_31B]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_FREE_NEMOTRON_3_5_SUPER_VL]: ResilientChatOpenRouter,
-  [ModelType.OPENROUTER_GLM_5_3_FLASH]: ResilientChatOpenRouter
-
-}
-
-/**
- * Which key each model authenticates with.
- *
- * A map rather than comparing the constructor against `ChatAnthropic`: the
- * Anthropic entries are a subclass, so an identity check fails on them and
- * every Claude model is rejected as invalid.
- */
-export const MODEL_API_KEY_ENV: Record<ModelType, string> = {
-  [ModelType.DEEPSEEK_FLASH]: "DEEP_SEEK_API_KEY",
-  [ModelType.DEEPSEEK_V4_FLASH]: "DEEP_SEEK_API_KEY",
-  [ModelType.DEEPSEEK_V4_PRO]: "DEEP_SEEK_API_KEY",
-  [ModelType.FABLE_5_1]: "ANTHROPIC_API_KEY",
-  [ModelType.OPUS_5_5]: "ANTHROPIC_API_KEY",
-  [ModelType.SONNET_5_5]: "ANTHROPIC_API_KEY",
-  [ModelType.SONNET_5_0]: "ANTHROPIC_API_KEY",
-  [ModelType.OPUS_5_0]: "ANTHROPIC_API_KEY",
-  // One key for every model behind the gateway, whoever ends up serving it.
-  [ModelType.OPENROUTER_GEMINI_3_8_FLASH]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_GEMINI_3_7_FLASH]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_GPT_6_1_SOL]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_GPT_6_1_SOL_PRO]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_GPT_6_1_TERRA]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_GPT_6_1_TERRA_PRO]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_GPT_6_LUNA]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_GPT_6_LUNA_PRO]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_GPT_6_ASTRA]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_GPT_6_ASTRA_PRO]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_GPT_5]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_GROK_4_7]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_GROK_4_6]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_LLAMA_4_SCOUT]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_LLAMA_3_3_70B]: "OPENROUTER_API_KEY",
-  // Free models still authenticate — the key identifies the account whose
-  // free-tier allowance the request draws on.
-  [ModelType.OPENROUTER_FREE_ROUTER]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_FREE_NEMOTRON_ULTRA]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_FREE_NEMOTRON_LIGHTNING]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_FREE_GEMMA_4_31B]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_FREE_NEMOTRON_3_5_SUPER_VL]: "OPENROUTER_API_KEY",
-  [ModelType.OPENROUTER_GLM_5_3_FLASH]: "OPENROUTER_API_KEY",
-}
+//
+// `apiKeyEnv` is the key each provider authenticates with. OpenRouter has one
+// for every model behind the gateway, free ones included — the key identifies
+// the account whose free-tier allowance the request draws on.
+export const PROVIDERS = {
+  anthropic: { Model: CachingChatAnthropic, apiKeyEnv: "ANTHROPIC_API_KEY" },
+  deepseek: { Model: ChatDeepSeek, apiKeyEnv: "DEEP_SEEK_API_KEY" },
+  openrouter: { Model: ResilientChatOpenRouter, apiKeyEnv: "OPENROUTER_API_KEY" },
+} satisfies Record<Provider, { Model: unknown; apiKeyEnv: string }>
