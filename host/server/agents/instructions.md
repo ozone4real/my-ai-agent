@@ -56,8 +56,6 @@ create in this run. Reading is free; writing to the outside world is not.
 - A scheduled run has no conversation attached, so write task prompts to stand
   alone — no "as we discussed", no pronouns pointing at chat history.
 - Pass `sourceConversation` when creating a task from a conversation.
-- Only update or delete tasks you created. If the user made it, say so and let
-  them change it.
 
 ## Browsing
 

@@ -1,13 +1,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { MCPAgent } from "@mcp-use/agent/langchain";
-import type { MCPAgentOptions, MCPServerConfig, LangChainAgentStep as AgentStep } from "@mcp-use/agent/langchain";
-import type { LLMConfig } from "@mcp-use/agent";
-import type { BaseMessage } from "@mcp-use/agent/langchain";
+import type { MCPServerConfig, LangChainAgentStep as AgentStep } from "@mcp-use/agent/langchain";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatDeepSeek } from "@langchain/deepseek";
 import { ChatOpenRouter } from "@langchain/openrouter";
-import { AIMessage, HumanMessage } from "@langchain/core/messages";
 import { MCPClient } from "@mcp-use/client";
 import ServersDefinition, { SERVER_TOOL_ALLOWLIST } from "../../../mcp_servers/servers_definition.js";
 import { handleElicitation } from "../services/elicitation.js";
@@ -134,7 +131,7 @@ export class Agent {
    * One client for the whole process, shared by every agent.
    *
    * Connecting the MCP servers spawns a child process each and takes 9-28s
-   * An agent with its own client paid that per request;
+   * An agent with its own client pays that per request;
    * over a shared one, `initialize()` finds the sessions
    * already open and returns in ~20-130ms.
    *

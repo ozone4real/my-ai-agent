@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { Check, FileText, Pencil, Play, Trash2, X } from "lucide-react";
+import { Check, Copy, FileText, Pencil, Play, Trash2, X } from "lucide-react";
 import { Transcript } from "./Transcript";
 import type { TaskRun, TaskUpdate, TaskWithRuns } from "./api";
 import { useArmedAction } from "./useArmedAction";
@@ -22,6 +22,15 @@ function formatDuration(run: TaskRun): string | null {
   const ms = new Date(run.endedAt).getTime() - new Date(run.startedAt).getTime();
   if (!Number.isFinite(ms) || ms <= 0) return null;
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
+}
+
+/** Pretty-printed when it parses; otherwise the stored text as-is. */
+function formatJson(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
 }
 
 function Run({
@@ -50,6 +59,18 @@ function Run({
       setTranscriptError((err as Error)?.message ?? "Could not load the transcript");
     }
   };
+  const [copied, setCopied] = useState(false);
+
+  const copyTranscript = async () => {
+    if (!transcript) return;
+    try {
+      await navigator.clipboard.writeText(formatJson(transcript));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setTranscriptError("Could not copy the transcript");
+    }
+  };
   const duration = formatDuration(run);
   // Keyed on the run id so an armed button can't carry to another run.
   const { armed: confirming, trigger: arm } = useArmedAction(onDelete, run.id);
@@ -67,6 +88,16 @@ function Run({
             <button className="run-toggle" onClick={() => void toggleTranscript()}>
               <FileText size={14} />
               {open ? "Hide transcript" : "Transcript"}
+            </button>
+          )}
+          {open && transcript && (
+            <button
+              className="run-toggle"
+              onClick={() => void copyTranscript()}
+              title="Copy the raw transcript as JSON"
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? "Copied" : "Copy JSON"}
             </button>
           )}
           {!running && (
